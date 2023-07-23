@@ -1,0 +1,20 @@
+.idea
+.vscode
+_deps
+cmake-*
+build
+.DS_Store
+*.pdf
+
+#Build Results
+*.o
+*.d
+*.eep
+*.elf
+*.hex
+*.map
+*.srec
+*.lss
+
+#User Specific Files
+*.atsuo
