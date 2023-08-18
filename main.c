@@ -2809,13 +2809,6 @@ static void loop()
 
 int main(void)
 {
-#if 0
-    // Disable the clock prescaler so that it runs at 20MHz
-    // Have to enable access first
-    CCP = CCP_IOREG_gc;
-    CLKCTRL.MCLKCTRLB = 0;
-#endif
-
     // Start the millisecond timer - it enables timer interrupts
     millisInit();
 
