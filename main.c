@@ -456,6 +456,8 @@ static bool bTransmitting = false;
 // BFO frequency - 0 for direct conversion
 static uint32_t BFOFrequency;
 
+extern bool shiftFrequency;
+
 // Works out the current RX frequency from the VFO settings
 static uint32_t getRXFreq()
 {
@@ -1027,7 +1029,14 @@ static void displayMorseWpm( void )
 
 static void displayVol( void )
 {
-    sprintf( volText, "V:%2d", ioGetVolume());
+    if( shiftFrequency )
+    {
+        sprintf( volText, "S:%2d", ioGetVolume());
+    }
+    else
+    {
+        sprintf( volText, "V:%2d", ioGetVolume());
+    }
 #ifdef OLED_DISPLAY
     // Display on the OLED
     oledWriteString( volX, volY, volText, VOLUME_FONT, true);
@@ -1126,6 +1135,11 @@ static void setRXFrequency( uint32_t freq )
         case usbMode:
             q = -1;
             break;
+    }
+
+    if( shiftFrequency )
+    {
+        freq -= 2000;
     }
 
     // Set the oscillator frequency.
@@ -3489,11 +3503,18 @@ static void handleVolume()
     }
     else if( bVolumeShortPress )
     {
+#if 0
         volume = MAX_VOLUME;
+#endif
+        shiftFrequency = true;
         bDisplay = true;
+        setFrequencies();
     }
     else if( bVolumeLongPress )
     {
+        shiftFrequency = false;
+        bDisplay = true;
+        setFrequencies();
 #ifdef LCD_DISPLAY
         enterSDRFilterMenu();
         bDisplay = false;
@@ -3589,7 +3610,17 @@ static void handleRotary()
         }
         else if( inputState & LONG_PRESS(BUTTON_A) )
         {
-            setTRXMode( (nvramReadTRXMode() + 1) % NUM_TRX_MODES );
+            uint8_t filter = ioGetFilter();
+            if( filter == 0 )
+            {
+                filter = ioGetNumFilters() - 1;
+            }
+            else
+            {
+                filter--;
+            }
+            ioSetFilter( filter );
+            displayFilter();
         }
         else 
 #endif
@@ -3599,6 +3630,7 @@ static void handleRotary()
         }
         else if( inputState & LONG_PRESS(BUTTON_B) )
         {
+            setTRXMode( (nvramReadTRXMode() + 1) % NUM_TRX_MODES );
         }
         else switch( currentMode )
         {
