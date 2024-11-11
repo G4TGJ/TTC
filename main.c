@@ -456,7 +456,8 @@ static bool bTransmitting = false;
 // BFO frequency - 0 for direct conversion
 static uint32_t BFOFrequency;
 
-extern bool shiftFrequency;
+// The selected intermediate frequency
+extern enum eIF intermediateFrequency;
 
 // Works out the current RX frequency from the VFO settings
 static uint32_t getRXFreq()
@@ -1029,14 +1030,25 @@ static void displayMorseWpm( void )
 
 static void displayVol( void )
 {
-    if( shiftFrequency )
+    char shiftFreq;
+
+    switch( intermediateFrequency )
     {
-        sprintf( volText, "S:%2d", ioGetVolume());
+        case IF_0KHZ:
+            shiftFreq = '0';
+            break;
+        case IF_2KHZ:
+            shiftFreq = '2';
+            break;
+        case IF_8KHZ:
+            shiftFreq = '8';
+            break;
+        default:
+            shiftFreq = 'X';
+            break;
     }
-    else
-    {
-        sprintf( volText, "V:%2d", ioGetVolume());
-    }
+    sprintf( volText, "%c:%2d", shiftFreq, ioGetVolume());
+
 #ifdef OLED_DISPLAY
     // Display on the OLED
     oledWriteString( volX, volY, volText, VOLUME_FONT, true);
@@ -1137,9 +1149,16 @@ static void setRXFrequency( uint32_t freq )
             break;
     }
 
-    if( shiftFrequency )
+    switch( intermediateFrequency )
     {
-        freq -= 2000;
+        case IF_2KHZ:
+            freq -= 2000;
+            break;
+        case IF_8KHZ:
+            freq -= 8000;
+            break;
+        default:
+            break;
     }
 
     // Set the oscillator frequency.
@@ -3506,13 +3525,17 @@ static void handleVolume()
 #if 0
         volume = MAX_VOLUME;
 #endif
-        shiftFrequency = true;
+        intermediateFrequency++;
+        if( intermediateFrequency >= NUM_IF)
+        {
+            intermediateFrequency = 0;
+        }
         bDisplay = true;
         setFrequencies();
     }
     else if( bVolumeLongPress )
     {
-        shiftFrequency = false;
+        intermediateFrequency = 0;
         bDisplay = true;
         setFrequencies();
 #ifdef LCD_DISPLAY
