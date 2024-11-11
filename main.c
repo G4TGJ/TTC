@@ -303,9 +303,6 @@ band[NUM_BANDS] =
     { "10m",     28000000, 29699999, 28060000, TX_ENABLED_10M,  RELAY_STATE_10M,  QUICK_VFO_10M },
 };
 
-// The 12m band has reversed CW mode
-#define BAND_12M 11
-
 // Current band - initialised from NVRAM
 static uint8_t currentBand;
 
@@ -3745,27 +3742,6 @@ static void loop()
         }
 #endif
     }
-#if 0
-    static uint8_t adc_sample_copy[3];
-
-    char buf[20];
-    bool display = false;
-
-    for( int i = 0 ; i < 3 ; i++)
-    {
-        if( adc_sample[i] != adc_sample_copy[i] )
-        {
-            adc_sample_copy[i] = adc_sample[i];
-            display = true;
-        }
-    }
-
-    if( display )
-    {
-        sprintf(buf, "%3d %3d %3d", adc_sample[0], adc_sample[1], adc_sample[2]);
-        displayText( 1, buf, true );
-    }
-#endif
 }
 
 void screenInit( void )
