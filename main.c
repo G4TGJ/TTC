@@ -456,6 +456,10 @@ static uint32_t BFOFrequency;
 // The selected intermediate frequency
 extern enum eIF intermediateFrequency;
 
+// Keep track of ADC overload
+extern bool adcOverload;
+static bool prevAdcOverload;
+
 // Works out the current RX frequency from the VFO settings
 static uint32_t getRXFreq()
 {
@@ -1062,11 +1066,25 @@ static void displayPreamp( void )
     char *preampText;
     if( bPreampOn )
     {
-        preampText = "PRE";
+        if( adcOverload )
+        {
+            preampText = "OVL";
+        }
+        else
+        {
+            preampText = "PRE";
+        }
     }
     else
     {
-        preampText = "pre";
+        if( adcOverload )
+        {
+            preampText = "ovl";
+        }
+        else
+        {
+            preampText = "pre";
+        }
     }
 
 #ifdef OLED_DISPLAY
@@ -3738,6 +3756,15 @@ static void loop()
                 lastScale = scale;
                 //update_display();
                 //ioClearScale();
+            }
+
+            // Display change in ADC overload state
+            // This is by changing preamp text to
+            // ovl or OVL.
+            if( adcOverload != prevAdcOverload)
+            {
+                prevAdcOverload = adcOverload;
+                displayPreamp();
             }
         }
 #endif
