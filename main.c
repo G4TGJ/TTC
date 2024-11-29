@@ -83,6 +83,7 @@ static bool menuAdjustPhase( uint16_t inputState );
 static bool menuApplyGains( uint16_t inputState );
 static bool menuRoofing( uint16_t inputState );
 static bool menuPWMDivider( uint16_t inputState );
+static bool menuHilbertFilter( uint16_t inputState );
 
 #ifdef LCD_DISPLAY
 static bool menuFilter( uint16_t inputState );
@@ -110,14 +111,15 @@ static const struct sMenuItem vfoMenu[NUM_VFO_MENUS] =
 };
 
 #ifdef LCD_DISPLAY
-#define NUM_SDR_MENUS 10
+#define NUM_SDR_MENUS 11
 #else
-#define NUM_SDR_MENUS 9
+#define NUM_SDR_MENUS 10
 #endif
 static const struct sMenuItem sdrMenu[NUM_SDR_MENUS] =
 {
     { "",               NULL },
     { "SDR Mode",       menuSDR },
+    { "Hilbert filter", menuHilbertFilter },
 #ifdef LCD_DISPLAY
     { "Filter",         menuFilter },
 #endif
@@ -1164,13 +1166,15 @@ static void setRXFrequency( uint32_t freq )
             break;
     }
 
+    //offset = 0;
+
     switch( intermediateFrequency )
     {
         case IF_2KHZ:
             freq -= 2000;
             break;
         case IF_8KHZ:
-            freq -= 8000;
+            freq -= INTERMEDIATE_FREQUENCY;
             break;
         default:
             break;
@@ -1180,8 +1184,13 @@ static void setRXFrequency( uint32_t freq )
     if( BFOFrequency == 0 )
     {
         // Direct conversion so set the correct quadrature phase shift.
+#if 1
+        oscSetFrequency( RX_CLOCK_A, freq, 0 );
+        oscSetFrequency( RX_CLOCK_B, freq, q );
+#else
         oscSetFrequency( RX_CLOCK_A, freq + offset, 0 );
         oscSetFrequency( RX_CLOCK_B, freq + offset, q );
+#endif
     }
     else
     {
@@ -1997,6 +2006,54 @@ static bool menuFilter( uint16_t inputState )
     return bUsed;
 }
 #endif
+
+static bool menuHilbertFilter( uint16_t inputState )
+{
+    uint8_t currentFilter = ioGetHilbertFilter();
+
+    bool bDisplay = !(bCW || bCCW || bShortPress || bLongPress || bShortPressLeft || bLongPressLeft || bShortPressRight || bLongPressRight);
+
+    // Set to true if we have used the presses etc
+    bool bUsed = false;
+
+    if( bShortPressRight )
+    {
+        currentFilter = (currentFilter+1)%ioGetNumHilbertFilters();
+        bDisplay = true;
+        bUsed = true;
+    }
+    else if( bShortPressLeft )
+    {
+        if( currentFilter == 0 )
+        {
+            currentFilter = ioGetNumHilbertFilters() - 1;
+        }
+        else
+        {
+            currentFilter--;
+        }
+        bDisplay = true;
+        bUsed = true;
+    }
+    // If we entered the menu quickly then a short or long press takes us out
+    // and back into VFO mode
+    else if( (bShortPress || bLongPress) && bInQuickMenuItem )
+    {
+        bInQuickMenuItem = false;
+        bInMenuItem = false;
+        enterVFOMode();
+        bUsed = true;
+        bDisplay = false;
+    }
+
+    if( bDisplay )
+    {
+        ioSetHilbertFilter( currentFilter );
+        displayMenu( ioGetHilbertFilterText() );
+    }
+
+    return bUsed;
+}
 
 static bool menuSDR( uint16_t inputState )
 {
@@ -3869,6 +3926,57 @@ void screenInit( void )
     displayPreamp();
 }
 
+#if 0
+// ##################
+
+static inline void firIn( int sample, uint16_t *current, int *buffer, int bufLen )
+{
+    printf("firIn sample %d current %d bufLen %d\n", sample, *current, bufLen);
+
+    // Move to the next sample position, wrapping as needed
+    *current = (*current+1) & (bufLen-1);
+}
+
+// bufLen must be a power of 2
+static inline int firOut( uint16_t current, int *buffer, int bufLen, const int *taps, int numTaps, int precision )
+{
+    printf("firOut current %d bufLen %d numTaps %d\n", current, bufLen, numTaps);
+    int tap;
+    uint16_t index;
+    int32_t result = 0;
+
+    // Calculate the result from the FIR filter
+    index = current;
+    for( tap = 0 ; tap < numTaps ; tap++ )
+    {
+        index = (index-1) & (bufLen-1);
+        printf("index = %d ", index);
+        result += ((int32_t) buffer[index]) * taps[tap];
+    }
+    printf("\n");
+    // Extract the significant bits
+    return result >> 16; // precision;
+}
+
+static inline void decimate( int factor, int count, int *inBuf, int inBufLen, uint16_t *inPos, int *outBuf, int outBufLen, uint16_t *outPos, const int *taps, int numTaps, int precision )
+{
+    printf("decimate factor = %d count = %d inBufLen = %d *inPos = %d\n", factor, count, inBufLen, *inPos);
+
+    // Process each decimation
+    for( int i = 0 ; i < count/factor ; i++ )
+    {
+        int out = firOut( *inPos, inBuf, inBufLen, taps, numTaps, precision );
+        firIn( out, outPos, outBuf, outBufLen );
+
+        // Move the input pointer past the decimation factor
+        *inPos = (*inPos+factor) & (inBufLen-1);
+        printf("New *inPos %d\n", *inPos);
+    }
+}
+
+// ##################
+#endif
+
 int main(void)
 {
     stdio_init_all();
@@ -3929,6 +4037,35 @@ int main(void)
 
     // Unmute the receiver
     muteRX( false );
+
+#if 0
+// #####
+#define DECIMATE_BUFFER_LEN 128
+#define ADC_BUFFER_SIZE 32
+static int         iInputBuffer[DECIMATE_BUFFER_LEN];
+static uint16_t iIn12864, qIn12864;
+static uint16_t iOut12864, qOut12864;
+static int  iDecimate6432Buffer[DECIMATE_BUFFER_LEN];
+#define DECIMATE_128_64_FILTER_TAP_NUM 7
+#define DECIMATE_128_64_FILTER_PRECISION 32768
+
+static int decimate12864FilterTaps[DECIMATE_128_64_FILTER_TAP_NUM] =
+{
+  -1205,
+  -142,
+  9414,
+  16565,
+  9414,
+  -142,
+  -1205
+};
+
+    for( int s = 0 ; s < 100 ; s++ )
+    {
+        decimate( 2, 16, iInputBuffer, DECIMATE_BUFFER_LEN, &iIn12864, iDecimate6432Buffer, DECIMATE_BUFFER_LEN, &iOut12864, decimate12864FilterTaps, DECIMATE_128_64_FILTER_TAP_NUM, DECIMATE_128_64_FILTER_PRECISION );
+    }
+// #####
+#endif
 
     while (1) 
     {

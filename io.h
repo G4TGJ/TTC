@@ -58,4 +58,9 @@ const char *ioGetFilterText( void );
 void ioSetFilter( uint8_t filter );
 uint8_t ioGetNumFilters( void );
 
+uint8_t ioGetHilbertFilter( void );
+const char *ioGetHilbertFilterText( void );
+void ioSetHilbertFilter( uint8_t filter );
+uint8_t ioGetNumHilbertFilters( void );
+
 #endif //IO_H
