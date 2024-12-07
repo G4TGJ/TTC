@@ -458,9 +458,16 @@ static uint32_t BFOFrequency;
 // The selected intermediate frequency
 extern enum eIF intermediateFrequency;
 
-// Keep track of ADC overload
+// Keep track of ADC and output overload
 extern bool adcOverload;
 static bool prevAdcOverload;
+extern int outOverload;
+static int prevOutOverload;
+
+#ifdef DISPLAY_MIN_MAX
+extern int maxIn, maxOut, minIn, minOut;
+static int prevMaxIn, prevMaxOut, prevMinIn, prevMinOut;
+#endif
 
 // Works out the current RX frequency from the VFO settings
 static uint32_t getRXFreq()
@@ -1065,33 +1072,50 @@ static void displayVol( void )
 
 static void displayPreamp( void )
 {
-    char *preampText;
+    char buf[TEXT_BUF_LEN];
+    char preampChar, adcChar, outChar;
+
     if( bPreampOn )
     {
-        if( adcOverload )
-        {
-            preampText = "OVL";
-        }
-        else
-        {
-            preampText = "PRE";
-        }
+        preampChar = 'P';
     }
     else
     {
-        if( adcOverload )
-        {
-            preampText = "ovl";
-        }
-        else
-        {
-            preampText = "pre";
-        }
+        preampChar = 'p';
     }
+
+    if( adcOverload )
+    {
+        adcChar = 'A';
+    }
+    else
+    {
+        adcChar = 'a';
+    }
+
+    if( outOverload == 1)
+    {
+        outChar = '+';
+    }
+    else if( outOverload == -1)
+    {
+        outChar = '-';
+    }
+    else
+    {
+        outChar = '0';
+    }
+
+    sprintf( buf, "%c%c%c", preampChar, adcChar, outChar );
 
 #ifdef OLED_DISPLAY
     // Display on the OLED
-    oledWriteString( preampX, preampY, preampText, PREAMP_FONT, true);
+    oledWriteString( preampX, preampY, buf, PREAMP_FONT, true);
+
+#ifdef DISPLAY_MIN_MAX
+    sprintf(buf, "%04x %04x %04x", minIn, maxIn, maxOut );
+    oledWriteString( menuX, menuY, buf, WPM_FONT, true);
+#endif
 #endif
 }
 
@@ -3815,12 +3839,26 @@ static void loop()
                 //ioClearScale();
             }
 
-            // Display change in ADC overload state
-            // This is by changing preamp text to
-            // ovl or OVL.
-            if( adcOverload != prevAdcOverload)
+            // Display change in ADC or output overload state
+            if( (adcOverload != prevAdcOverload) ||
+                (outOverload != prevOutOverload)
+#ifdef DISPLAY_MIN_MAX
+                 ||
+                (maxOut != prevMaxOut) ||
+                (maxIn != prevMaxIn) ||
+                (minOut != prevMinOut) ||
+                (minIn != prevMinIn)
+#endif
+              )
             {
                 prevAdcOverload = adcOverload;
+                prevOutOverload = outOverload;
+#ifdef DISPLAY_MIN_MAX
+                prevMaxOut = maxOut;
+                prevMaxIn = maxIn;
+                prevMinOut = minOut;
+                prevMinIn = minIn;
+#endif
                 displayPreamp();
             }
         }
