@@ -63,4 +63,7 @@ const char *ioGetHilbertFilterText( void );
 void ioSetHilbertFilter( uint8_t filter );
 uint8_t ioGetNumHilbertFilters( void );
 
+// Set the IF frequency
+void ioSetIF( void );
+
 #endif //IO_H

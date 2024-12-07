@@ -455,8 +455,8 @@ static bool bTransmitting = false;
 // BFO frequency - 0 for direct conversion
 static uint32_t BFOFrequency;
 
-// The selected intermediate frequency
-extern enum eIF intermediateFrequency;
+// Whether IF is above or below
+extern bool ifBelow;
 
 // Keep track of ADC and output overload
 extern bool adcOverload;
@@ -1040,24 +1040,7 @@ static void displayMorseWpm( void )
 
 static void displayVol( void )
 {
-    char shiftFreq;
-
-    switch( intermediateFrequency )
-    {
-        case IF_0KHZ:
-            shiftFreq = '0';
-            break;
-        case IF_2KHZ:
-            shiftFreq = '2';
-            break;
-        case IF_8KHZ:
-            shiftFreq = '8';
-            break;
-        default:
-            shiftFreq = 'X';
-            break;
-    }
-    sprintf( volText, "%c:%2d", shiftFreq, ioGetVolume());
+    sprintf( volText, "%c:%2d", ifBelow ? '-' : '+', ioGetVolume());
 
 #ifdef OLED_DISPLAY
     // Display on the OLED
@@ -1192,16 +1175,13 @@ static void setRXFrequency( uint32_t freq )
 
     //offset = 0;
 
-    switch( intermediateFrequency )
+    if( ifBelow )
     {
-        case IF_2KHZ:
-            freq -= 2000;
-            break;
-        case IF_8KHZ:
-            freq -= INTERMEDIATE_FREQUENCY;
-            break;
-        default:
-            break;
+        freq -= INTERMEDIATE_FREQUENCY;
+    }
+    else
+    {
+        freq += INTERMEDIATE_FREQUENCY;
     }
 
     // Set the oscillator frequency.
@@ -1237,8 +1217,6 @@ static void setFrequencies()
     // Set RX and TX frequencies
     setRXFrequency( getRXFreq() );
     oscSetFrequency( TX_CLOCK, getTXFreq(), 0 );
-
-//    delay(1000);
 
     // Ensure the display and cursor reflect this
     displayFrequencies();
@@ -3621,17 +3599,15 @@ static void handleVolume()
 #if 0
         volume = MAX_VOLUME;
 #endif
-        intermediateFrequency++;
-        if( intermediateFrequency >= NUM_IF)
-        {
-            intermediateFrequency = 0;
-        }
+        ifBelow = !ifBelow;
+        ioSetIF();
         bDisplay = true;
         setFrequencies();
     }
     else if( bVolumeLongPress )
     {
-        intermediateFrequency = 0;
+        ifBelow = true;
+        ioSetIF();
         bDisplay = true;
         setFrequencies();
 #ifdef LCD_DISPLAY
