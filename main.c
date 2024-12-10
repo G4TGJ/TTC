@@ -84,6 +84,7 @@ static bool menuApplyGains( uint16_t inputState );
 static bool menuRoofing( uint16_t inputState );
 static bool menuPWMDivider( uint16_t inputState );
 static bool menuHilbertFilter( uint16_t inputState );
+static bool menuMuteFactor( uint16_t inputState );
 
 #ifdef LCD_DISPLAY
 static bool menuFilter( uint16_t inputState );
@@ -111,9 +112,9 @@ static const struct sMenuItem vfoMenu[NUM_VFO_MENUS] =
 };
 
 #ifdef LCD_DISPLAY
-#define NUM_SDR_MENUS 11
+#define NUM_SDR_MENUS 12
 #else
-#define NUM_SDR_MENUS 10
+#define NUM_SDR_MENUS 11
 #endif
 static const struct sMenuItem sdrMenu[NUM_SDR_MENUS] =
 {
@@ -130,6 +131,7 @@ static const struct sMenuItem sdrMenu[NUM_SDR_MENUS] =
     { "Q Gain",         menuQGain },
     { "IQ Gain",        menuIQGain },
     { "PWM Divider",    menuPWMDivider },
+    { "Mute Factor",    menuMuteFactor },
 };
 
 #define SDR_FILTER_MENU_ITEM 2
@@ -463,6 +465,9 @@ extern bool adcOverload;
 static bool prevAdcOverload;
 extern int outOverload;
 static int prevOutOverload;
+
+// Maximum mute factor
+extern int maxMuteFactor;
 
 #ifdef DISPLAY_MIN_MAX
 extern int maxIn, maxOut, minIn, minOut;
@@ -3220,6 +3225,70 @@ static bool menuIQGain( uint16_t inputState )
     }
     char buf[TEXT_BUF_LEN];
     sprintf( buf, "IQ Gain: %d", iqGain);
+    displayMenu( buf );
+    
+    return bUsed;
+}
+
+static bool menuMuteFactor( uint16_t inputState )
+{
+    // Set to true if we have used the presses etc
+    bool bUsed = false;
+    
+    if( bCW )
+    {
+        if( maxMuteFactor < 10 )
+        {
+            maxMuteFactor++;
+        }
+        else if( maxMuteFactor <= (MAX_MUTE_FACTOR - 10) )
+        {
+            maxMuteFactor+=10;
+        }
+        bUsed = true;
+    }
+    else if( bCCW )
+    {
+        if( maxMuteFactor >= 20 )
+        {
+            maxMuteFactor-=10;
+        }
+        else if( maxMuteFactor > MIN_MUTE_FACTOR )
+        {
+            maxMuteFactor--;
+        }
+        bUsed = true;
+    }
+    else if( bShortPressRight )
+    {
+        if( maxMuteFactor < (MAX_MUTE_FACTOR - 100) )
+        {
+            maxMuteFactor+=100;
+        }
+        bUsed = true;
+    }
+    else if( bShortPressLeft )
+    {
+        if( maxMuteFactor >= (MIN_MUTE_FACTOR + 100) )
+        {
+            maxMuteFactor-=100;
+        }
+        bUsed = true;
+    }
+    else if( bShortPress )
+    {
+        if( maxMuteFactor == DEFAULT_MAX_MUTE_FACTOR )
+        {
+            maxMuteFactor = 10 * DEFAULT_MAX_MUTE_FACTOR;
+        }
+        else
+        {
+            maxMuteFactor = DEFAULT_MAX_MUTE_FACTOR;
+        }
+        bUsed = true;
+    }
+    char buf[TEXT_BUF_LEN];
+    sprintf( buf, "Mute f: %d", maxMuteFactor);
     displayMenu( buf );
     
     return bUsed;
