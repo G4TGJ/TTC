@@ -446,6 +446,9 @@ static bool bSidetone = true;
 // Set to true when the preamp is on
 static bool bPreampOn = false;
 
+// True if binaural output
+extern bool bBinaural;
+
 // Delay before muting and unmuting
 static uint8_t muteDelay = 5;
 static uint16_t unmuteDelay = 5;
@@ -1109,6 +1112,7 @@ static void displayPreamp( void )
 
 #ifdef OLED_DISPLAY
 
+#if 0
 static char *getModeText( void )
 {
     switch( nvramReadTRXMode() )
@@ -1136,6 +1140,14 @@ static void displayTRXMode( void )
     oledDrawRectangle( modeX, modeY, modeWidth, getFontHeight( MODE_FONT ), false, false );
     oledWriteString (modeX, modeY, getModeText(), MODE_FONT, true );
 }
+#else
+static void displayBinaural( void )
+{
+    // Clear previous mode text before writing new text
+    oledDrawRectangle( modeX, modeY, modeWidth, getFontHeight( MODE_FONT ), false, false );
+    oledWriteString (modeX, modeY, bBinaural ? "CWB" : "CW", MODE_FONT, true );
+}
+#endif
 
 static void displayFilter( void )
 {
@@ -1895,7 +1907,7 @@ void setTRXMode( enum eTRXMode mode )
     // Store in the NVRAM
     nvramWriteTRXMode( mode );
 
-    displayTRXMode();
+    //displayTRXMode();
 
     // Action the change in sideband
     setFrequencies();
@@ -3722,6 +3734,12 @@ static void togglePreamp( void )
     displayPreamp();
 }
 
+static void toggleBinaural( void )
+{
+    bBinaural = !bBinaural;
+    displayBinaural();
+}
+
 // See if the main rotary control has been touched and handle its movement
 // This will update either the VFO or the wpm or the menu
 // Also handles the left and right buttons
@@ -3794,7 +3812,8 @@ static void handleRotary()
         }
         else if( inputState & LONG_PRESS(BUTTON_B) )
         {
-            setTRXMode( (nvramReadTRXMode() + 1) % NUM_TRX_MODES );
+            //setTRXMode( (nvramReadTRXMode() + 1) % NUM_TRX_MODES );
+            toggleBinaural();
         }
         else switch( currentMode )
         {
@@ -4000,7 +4019,8 @@ void screenInit( void )
     filterY = modeY;
     filterWidth = OLED_WIDTH - modeWidth - 2;
 
-    displayTRXMode();
+    //displayTRXMode();
+    displayBinaural();
     displayFilter();
 #endif
 
