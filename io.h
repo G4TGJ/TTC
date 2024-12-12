@@ -66,4 +66,13 @@ uint8_t ioGetNumHilbertFilters( void );
 // Set the IF frequency
 void ioSetIF( void );
 
+// Select normal, binaural or peaked output
+enum eOutput
+{
+    NORMAL_OUTPUT = 0,
+    BINAURAL_OUTPUT,
+    PEAKED_OUTPUT,
+    NUM_OUTPUTS
+};
+
 #endif //IO_H

@@ -446,8 +446,8 @@ static bool bSidetone = true;
 // Set to true when the preamp is on
 static bool bPreampOn = false;
 
-// True if binaural output
-extern bool bBinaural;
+// Select normal, binaural or peaked output
+extern enum eOutput outputMode;
 
 // Delay before muting and unmuting
 static uint8_t muteDelay = 5;
@@ -1148,11 +1148,32 @@ static void displayTRXMode( void )
     oledWriteString (modeX, modeY, getModeText(), MODE_FONT, true );
 }
 #else
-static void displayBinaural( void )
+static void displayOutputMode( void )
 {
+    char *output;
+
     // Clear previous mode text before writing new text
     oledDrawRectangle( modeX, modeY, modeWidth, getFontHeight( MODE_FONT ), false, false );
-    oledWriteString (modeX, modeY, bBinaural ? "CWB" : "CW", MODE_FONT, true );
+
+    switch( outputMode )
+    {
+        case NORMAL_OUTPUT:
+            output = "CW ";
+            break;
+
+        case BINAURAL_OUTPUT:
+            output = "CWB";
+            break;
+
+        case PEAKED_OUTPUT:
+            output = "CWP";
+            break;
+
+        default:
+            output = "CW?";
+            break;
+    }
+    oledWriteString (modeX, modeY, output, MODE_FONT, true );
 }
 #endif
 
@@ -3767,12 +3788,6 @@ static void togglePreamp( void )
     displayPreamp();
 }
 
-static void toggleBinaural( void )
-{
-    bBinaural = !bBinaural;
-    displayBinaural();
-}
-
 // See if the main rotary control has been touched and handle its movement
 // This will update either the VFO or the wpm or the menu
 // Also handles the left and right buttons
@@ -3845,8 +3860,12 @@ static void handleRotary()
         }
         else if( inputState & LONG_PRESS(BUTTON_B) )
         {
-            //setTRXMode( (nvramReadTRXMode() + 1) % NUM_TRX_MODES );
-            toggleBinaural();
+            outputMode++;
+            if( outputMode >= NUM_OUTPUTS )
+            {
+                outputMode = 0;
+            }
+            displayOutputMode();
         }
         else switch( currentMode )
         {
@@ -4053,7 +4072,7 @@ void screenInit( void )
     filterWidth = OLED_WIDTH - modeWidth - 2;
 
     //displayTRXMode();
-    displayBinaural();
+    displayOutputMode();
     displayFilter();
 #endif
 
