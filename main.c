@@ -477,6 +477,13 @@ extern int maxIn, maxOut, minIn, minOut;
 static int prevMaxIn, prevMaxOut, prevMinIn, prevMinOut;
 #endif
 
+// Volume knob controls volume when true else front end
+// sample shift.
+static bool bVolumeMode = true;
+
+// The front end input shift
+extern int inputShift;
+
 // Works out the current RX frequency from the VFO settings
 static uint32_t getRXFreq()
 {
@@ -1048,7 +1055,7 @@ static void displayMorseWpm( void )
 
 static void displayVol( void )
 {
-    sprintf( volText, "%c:%2d", ifBelow ? '-' : '+', ioGetVolume());
+    sprintf( volText, "%c:%d%c%02d", ifBelow ? '-' : '+', inputShift, bVolumeMode ? '>' : '<', ioGetVolume());
 
 #ifdef OLED_DISPLAY
     // Display on the OLED
@@ -3649,7 +3656,7 @@ static void handleVolume()
 
     // Whether or not to display the volume
     // Even if we can't go up or down because at max or min
-    // still want to display it briefly
+    // still want to display it briefly (on LCD)
     bool bDisplay = false;
 
     // Get the currently set volume
@@ -3659,42 +3666,68 @@ static void handleVolume()
     // Read the rotary state
     readRotary(VOLUME_ROTARY, &bVolumeCW, &bVolumeCCW, &bVolumeShortPress, &bVolumeLongPress);
 
-    if( bVolumeCW )
+    // The rotary control is either adjusting audio volume or front end gain (actually a shift in the input samples)
+    if( bVolumeMode )
     {
-        if( volume < MAX_VOLUME )
+        if( bVolumeCW )
         {
-            volume++;
+            if( volume < MAX_VOLUME )
+            {
+                volume++;
+            }
+            bDisplay = true;
         }
-        bDisplay = true;
-    }
-    else if( bVolumeCCW )
-    {
-        if( volume > MIN_VOLUME )
+        else if( bVolumeCCW )
         {
-            volume--;
+            if( volume > MIN_VOLUME )
+            {
+                volume--;
+            }
+            bDisplay = true;
         }
-        bDisplay = true;
+        else if( bVolumeShortPress )
+        {
+            // Switch between IF below or above RX frequency
+            ifBelow = !ifBelow;
+            ioSetIF();
+            bDisplay = true;
+            setFrequencies();
+        }
+        else if( bVolumeLongPress )
+        {
+            // Switch to front end shift control
+            bVolumeMode = false;
+            bDisplay = true;
+        }
     }
-    else if( bVolumeShortPress )
+    else
     {
-#if 0
-        volume = MAX_VOLUME;
-#endif
-        ifBelow = !ifBelow;
-        ioSetIF();
-        bDisplay = true;
-        setFrequencies();
-    }
-    else if( bVolumeLongPress )
-    {
-        ifBelow = true;
-        ioSetIF();
-        bDisplay = true;
-        setFrequencies();
-#ifdef LCD_DISPLAY
-        enterSDRFilterMenu();
-        bDisplay = false;
-#endif
+        if( bVolumeCW )
+        {
+            if( inputShift < MAX_INPUT_SHIFT )
+            {
+                inputShift++;
+            }
+            bDisplay = true;
+        }
+        else if( bVolumeCCW )
+        {
+            if( inputShift > MIN_INPUT_SHIFT )
+            {
+                inputShift--;
+            }
+            bDisplay = true;
+        }
+        else if( bVolumeShortPress )
+        {
+            inputShift = DEFAULT_INPUT_SHIFT;
+            bDisplay = true;
+        }
+        else if( bVolumeLongPress )
+        {
+            bVolumeMode = true;
+            bDisplay = true;
+        }
     }
 
     if( bDisplay )
@@ -3999,10 +4032,10 @@ void screenInit( void )
     wpmCursorY = wpmY + getFontHeight( WPM_FONT );
     wpmCursorWidth = getFontWidth( WPM_FONT ) * 5;
 
-    volX = OLED_WIDTH/2;
+    volX = wpmCursorX + wpmCursorWidth + getFontWidth( WPM_FONT );
     volY = wpmY;
 
-    preampX = volX + getFontWidth( VOLUME_FONT ) * 5;
+    preampX = volX + getFontWidth( VOLUME_FONT ) * 7;
     preampY = volY;
 
     menuX = 0;
