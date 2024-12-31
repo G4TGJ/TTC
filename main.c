@@ -469,6 +469,14 @@ static bool prevAdcOverload;
 extern int outOverload;
 static int prevOutOverload;
 
+#ifdef DISPLAY_AGC
+// Amplitude and gain as used by the AGC
+extern uint32_t agcAmplitude;
+static uint32_t prevAgcAmplitude;
+extern int agcGain;
+static int prevAgcGain;
+#endif
+
 // Maximum mute factor
 extern int maxMuteFactor;
 
@@ -1067,6 +1075,19 @@ static void displayVol( void )
     displayFrequencyLCD();
 #endif
 }
+
+#ifdef DISPLAY_AGC
+static void displayAgc( void )
+{
+#ifdef OLED_DISPLAY
+    char buf[TEXT_BUF_LEN];
+    sprintf( buf, "%6u %6d", agcAmplitude / AGC_BUFFER_LEN / AGC_BUFFER_LEN, agcGain );
+
+    // Display on the OLED
+    oledWriteString( menuX, menuY, buf, MENU_FONT, true);
+#endif
+}
+#endif
 
 static void displayPreamp( void )
 {
@@ -3977,6 +3998,15 @@ static void loop()
 #endif
                 displayPreamp();
             }
+
+#ifdef DISPLAY_AGC
+            if( (agcAmplitude != prevAgcAmplitude) || (agcGain != prevAgcGain) )
+            {
+                prevAgcAmplitude = agcAmplitude;
+                prevAgcGain = agcGain;
+                displayAgc();
+            }
+#endif
         }
 #endif
     }
