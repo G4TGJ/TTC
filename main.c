@@ -3968,14 +3968,6 @@ static void loop()
         {
             lastInputTime = now;
         
-            uint8_t scale = ioGetScale();
-            if( scale != lastScale )
-            {
-                lastScale = scale;
-                //update_display();
-                //ioClearScale();
-            }
-
             // Display change in ADC or output overload state
             if( (adcOverload != prevAdcOverload) ||
                 (outOverload != prevOutOverload)

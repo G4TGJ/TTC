@@ -50,9 +50,6 @@ uint8_t ioGetSidetoneVolume( void );
 void ioSetVolume( uint8_t volume );
 uint8_t ioGetVolume( void );
 
-uint32_t ioGetScale( void );
-void ioClearScale( void );
-
 uint8_t ioGetFilter( void );
 const char *ioGetFilterText( void );
 void ioSetFilter( uint8_t filter );
