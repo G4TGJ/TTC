@@ -22,6 +22,7 @@
 #include "rotary.h"
 #include "pushbutton.h"
 #include "sdr.h"
+#include "WM8960.h"
 
 #ifdef LCD_DISPLAY
 #include "display.h"
@@ -82,9 +83,11 @@ static bool menuIQGain( uint16_t inputState );
 static bool menuAdjustPhase( uint16_t inputState );
 static bool menuApplyGains( uint16_t inputState );
 static bool menuRoofing( uint16_t inputState );
-static bool menuPWMDivider( uint16_t inputState );
 static bool menuHilbertFilter( uint16_t inputState );
 static bool menuMuteFactor( uint16_t inputState );
+static bool menuLeftADCVolume( uint16_t inputState );
+static bool menuRightADCVolume( uint16_t inputState );
+static bool menuIQPhasing( uint16_t inputState );
 
 #ifdef LCD_DISPLAY
 static bool menuFilter( uint16_t inputState );
@@ -112,26 +115,28 @@ static const struct sMenuItem vfoMenu[NUM_VFO_MENUS] =
 };
 
 #ifdef LCD_DISPLAY
-#define NUM_SDR_MENUS 12
+#define NUM_SDR_MENUS 14
 #else
-#define NUM_SDR_MENUS 11
+#define NUM_SDR_MENUS 13
 #endif
 static const struct sMenuItem sdrMenu[NUM_SDR_MENUS] =
 {
     { "",               NULL },
     { "SDR Mode",       menuSDR },
-    { "Hilbert filter", menuHilbertFilter },
 #ifdef LCD_DISPLAY
     { "Filter",         menuFilter },
 #endif
+    { "IQ Phasing",     menuIQPhasing },
+    { "Left ADC Vol",   menuLeftADCVolume },
+    { "Right ADC Vol",  menuRightADCVolume },
     { "Roofing filter", menuRoofing },
     { "Apply gains",    menuApplyGains },
     { "Adjust phase",   menuAdjustPhase },
     { "I Gain",         menuIGain },
     { "Q Gain",         menuQGain },
     { "IQ Gain",        menuIQGain },
-    { "PWM Divider",    menuPWMDivider },
     { "Mute Factor",    menuMuteFactor },
+    { "Hilbert filter", menuHilbertFilter },
 };
 
 #define SDR_FILTER_MENU_ITEM 2
@@ -3155,44 +3160,6 @@ static bool menuIGain( uint16_t inputState )
     return bUsed;
 }
 
-static bool menuPWMDivider( uint16_t inputState )
-{
-    // Set to true if we have used the presses etc
-    bool bUsed = false;
-
-    uint8_t div = ioGetPWMDiv();
-    
-    if( bCW )
-    {
-        if( div < 8 )
-        {
-            div++;
-            ioSetPWMDiv( div );
-        }
-        bUsed = true;
-    }
-    else if( bCCW )
-    {
-        if( div > 1 )
-        {
-            div--;
-            ioSetPWMDiv( div );
-        }
-        bUsed = true;
-    }
-    else if( bShortPress )
-    {
-        div = AUDIO_DIVIDE;
-        ioSetPWMDiv( div );
-        bUsed = true;
-    }
-    char buf[TEXT_BUF_LEN];
-    sprintf( buf, "PWM Divider: %d", div);
-    displayMenu( buf );
-    
-    return bUsed;
-}
-
 static bool menuQGain( uint16_t inputState )
 {
     // Set to true if we have used the presses etc
@@ -3350,6 +3317,116 @@ static bool menuMuteFactor( uint16_t inputState )
     }
     char buf[TEXT_BUF_LEN];
     sprintf( buf, "Mute f: %d", maxMuteFactor);
+    displayMenu( buf );
+    
+    return bUsed;
+}
+
+static bool menuLeftADCVolume( uint16_t inputState )
+{
+    // Set to true if we have used the presses etc
+    bool bUsed = false;
+
+    uint8_t vol, currentVol;
+    vol = currentVol = WM8960GetLeftADCVolume();
+    
+    if( bCW )
+    {
+        if( vol < MAX_ADC_VOLUME )
+        {
+            vol++;
+        }
+        bUsed = true;
+    }
+    else if( bCCW )
+    {
+        if( vol > MIN_ADC_VOLUME )
+        {
+            vol--;
+        }
+        bUsed = true;
+    }
+    else if( bShortPress )
+    {
+        vol = DEFAULT_LEFT_ADC_VOLUME;
+        bUsed = true;
+    }
+
+    if( vol != currentVol )
+    {
+        WM8960SetLeftADCVolume( vol );
+    }
+
+    char buf[TEXT_BUF_LEN];
+    sprintf( buf, "Left vol: %d", vol);
+    displayMenu( buf );
+    
+    return bUsed;
+}
+
+static bool menuRightADCVolume( uint16_t inputState )
+{
+    // Set to true if we have used the presses etc
+    bool bUsed = false;
+
+    uint8_t vol, currentVol;
+    vol = currentVol = WM8960GetRightADCVolume();
+    
+    if( bCW )
+    {
+        if( vol < MAX_ADC_VOLUME )
+        {
+            vol++;
+        }
+        bUsed = true;
+    }
+    else if( bCCW )
+    {
+        if( vol > MIN_ADC_VOLUME )
+        {
+            vol--;
+        }
+        bUsed = true;
+    }
+    else if( bShortPress )
+    {
+        vol = DEFAULT_LEFT_ADC_VOLUME;
+        bUsed = true;
+    }
+
+    if( vol != currentVol )
+    {
+        WM8960SetRightADCVolume( vol );
+    }
+
+    char buf[TEXT_BUF_LEN];
+    sprintf( buf, "Right vol: %d", vol);
+    displayMenu( buf );
+    
+    return bUsed;
+}
+
+static bool menuIQPhasing( uint16_t inputState )
+{
+    // Set to true if we have used the presses etc
+    bool bUsed = false;
+
+    extern volatile int changeIQPhasing, iqPhasing;
+
+    if( bCW )
+    {
+        changeIQPhasing = 1;
+        bUsed = true;
+    }
+    else if( bCCW )
+    {
+        changeIQPhasing = -1;
+        bUsed = true;
+    }
+
+    sleep_ms(25);
+    char buf[TEXT_BUF_LEN];
+    sprintf( buf, "IQ Phasing: %d", iqPhasing );
     displayMenu( buf );
     
     return bUsed;
@@ -3964,10 +4041,23 @@ static void loop()
         static uint8_t lastScale;
 
         uint32_t now = millis();
-        if( (now - lastInputTime) > 500 )
+        if( (now - lastInputTime) > 2000 )
         {
             lastInputTime = now;
+
+#if 0
+            extern int minValueI, maxValueI;
+            extern int minValueQ, maxValueQ;
+
+            char buf[50];
+            sprintf(buf, "%6d %6d", minValueI, maxValueI );
+            oledWriteString( menuX, menuY, buf, WPM_FONT, true);
+            sprintf(buf, "%6d %6d", minValueQ, maxValueQ );
+            oledWriteString( modeX, modeY, buf, WPM_FONT, true);
         
+            minValueI = maxValueI = 0;
+            minValueQ = maxValueQ = 0;
+#endif
             // Display change in ADC or output overload state
             if( (adcOverload != prevAdcOverload) ||
                 (outOverload != prevOutOverload)
@@ -4103,61 +4193,11 @@ void screenInit( void )
     displayPreamp();
 }
 
-#if 0
-// ##################
-
-static inline void firIn( int sample, uint16_t *current, int *buffer, int bufLen )
-{
-    printf("firIn sample %d current %d bufLen %d\n", sample, *current, bufLen);
-
-    // Move to the next sample position, wrapping as needed
-    *current = (*current+1) & (bufLen-1);
-}
-
-// bufLen must be a power of 2
-static inline int firOut( uint16_t current, int *buffer, int bufLen, const int *taps, int numTaps, int precision )
-{
-    printf("firOut current %d bufLen %d numTaps %d\n", current, bufLen, numTaps);
-    int tap;
-    uint16_t index;
-    int32_t result = 0;
-
-    // Calculate the result from the FIR filter
-    index = current;
-    for( tap = 0 ; tap < numTaps ; tap++ )
-    {
-        index = (index-1) & (bufLen-1);
-        printf("index = %d ", index);
-        result += ((int32_t) buffer[index]) * taps[tap];
-    }
-    printf("\n");
-    // Extract the significant bits
-    return result >> 16; // precision;
-}
-
-static inline void decimate( int factor, int count, int *inBuf, int inBufLen, uint16_t *inPos, int *outBuf, int outBufLen, uint16_t *outPos, const int *taps, int numTaps, int precision )
-{
-    printf("decimate factor = %d count = %d inBufLen = %d *inPos = %d\n", factor, count, inBufLen, *inPos);
-
-    // Process each decimation
-    for( int i = 0 ; i < count/factor ; i++ )
-    {
-        int out = firOut( *inPos, inBuf, inBufLen, taps, numTaps, precision );
-        firIn( out, outPos, outBuf, outBufLen );
-
-        // Move the input pointer past the decimation factor
-        *inPos = (*inPos+factor) & (inBufLen-1);
-        printf("New *inPos %d\n", *inPos);
-    }
-}
-
-// ##################
-#endif
-
 int main(void)
 {
     stdio_init_all();
-    printf("Hello\n");
+    //sleep_ms(2000);
+    //printf("Hello\n");
 
     // Start the millisecond timer - it enables timer interrupts
     millisInit();
@@ -4214,35 +4254,6 @@ int main(void)
 
     // Unmute the receiver
     muteRX( false );
-
-#if 0
-// #####
-#define DECIMATE_BUFFER_LEN 128
-#define ADC_BUFFER_SIZE 32
-static int         iInputBuffer[DECIMATE_BUFFER_LEN];
-static uint16_t iIn12864, qIn12864;
-static uint16_t iOut12864, qOut12864;
-static int  iDecimate6432Buffer[DECIMATE_BUFFER_LEN];
-#define DECIMATE_128_64_FILTER_TAP_NUM 7
-#define DECIMATE_128_64_FILTER_PRECISION 32768
-
-static int decimate12864FilterTaps[DECIMATE_128_64_FILTER_TAP_NUM] =
-{
-  -1205,
-  -142,
-  9414,
-  16565,
-  9414,
-  -142,
-  -1205
-};
-
-    for( int s = 0 ; s < 100 ; s++ )
-    {
-        decimate( 2, 16, iInputBuffer, DECIMATE_BUFFER_LEN, &iIn12864, iDecimate6432Buffer, DECIMATE_BUFFER_LEN, &iOut12864, decimate12864FilterTaps, DECIMATE_128_64_FILTER_TAP_NUM, DECIMATE_128_64_FILTER_PRECISION );
-    }
-// #####
-#endif
 
     while (1) 
     {
