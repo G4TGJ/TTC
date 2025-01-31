@@ -4195,10 +4195,6 @@ void screenInit( void )
 
 int main(void)
 {
-    stdio_init_all();
-    //sleep_ms(2000);
-    //printf("Hello\n");
-
     // Start the millisecond timer - it enables timer interrupts
     millisInit();
 
