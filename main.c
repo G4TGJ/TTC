@@ -4041,7 +4041,7 @@ static void loop()
         static uint8_t lastScale;
 
         uint32_t now = millis();
-        if( (now - lastInputTime) > 2000 )
+        if( (now - lastInputTime) > 500 )
         {
             lastInputTime = now;
 
