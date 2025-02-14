@@ -10,6 +10,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
 
 #include "config.h"
 #include "main.h"
@@ -495,7 +496,7 @@ static int prevMaxIn, prevMaxOut, prevMinIn, prevMinOut;
 static bool bVolumeMode = true;
 
 // The front end input shift
-extern int inputShift;
+//extern int inputShift;
 
 // Works out the current RX frequency from the VFO settings
 static uint32_t getRXFreq()
@@ -1068,7 +1069,8 @@ static void displayMorseWpm( void )
 
 static void displayVol( void )
 {
-    sprintf( volText, "%c:%d%c%02d", ifBelow ? '-' : '+', inputShift, bVolumeMode ? '>' : '<', ioGetVolume());
+//    sprintf( volText, "%c:%d%c%02d", ifBelow ? '-' : '+', inputShift, bVolumeMode ? '>' : '<', ioGetVolume());
+    sprintf( volText, "%c:%d%c%02d", ifBelow ? '-' : '+', WM8960GetInputBoostGain(), bVolumeMode ? '>' : '<', ioGetVolume());
 
 #ifdef OLED_DISPLAY
     // Display on the OLED
@@ -3821,6 +3823,42 @@ static void handleVolume()
     }
     else
     {
+#if 1
+        uint8_t gain = WM8960GetInputBoostGain();
+        uint8_t prevGain = gain;
+
+        if( bVolumeCW )
+        {
+            if( gain < MAX_INPUT_BOOST_GAIN )
+            {
+                gain++;
+            }
+            bDisplay = true;
+        }
+        else if( bVolumeCCW )
+        {
+            if( gain > MIN_INPUT_BOOST_GAIN )
+            {
+                gain--;
+            }
+            bDisplay = true;
+        }
+        else if( bVolumeShortPress )
+        {
+            gain = DEFAULT_INPUT_BOOST_GAIN;
+            bDisplay = true;
+        }
+        else if( bVolumeLongPress )
+        {
+            bVolumeMode = true;
+            bDisplay = true;
+        }
+
+        if( gain != prevGain )
+        {
+            WM8960SetInputBoostGain( gain );
+        }
+#else
         if( bVolumeCW )
         {
             if( inputShift < MAX_INPUT_SHIFT )
@@ -3847,6 +3885,7 @@ static void handleVolume()
             bVolumeMode = true;
             bDisplay = true;
         }
+#endif
     }
 
     if( bDisplay )
@@ -4037,7 +4076,7 @@ static void loop()
         catControl();
 #endif
 #if 1
-        static u_int32_t lastInputTime;
+        static uint32_t lastInputTime;
         static uint8_t lastScale;
 
         uint32_t now = millis();
