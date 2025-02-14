@@ -846,7 +846,7 @@ static void setRXFrequency( uint32_t freq )
     {
         // Superhet so set the LFO and BFO
         oscSetFrequency( RX_CLOCK_A, freq + intermediateFrequency, 0 );
-        oscSetFrequency( RX_CLOCK_B, intermediateFrequency + RX_OFFSET, 0 );
+        oscSetFrequency( RX_CLOCK_B, intermediateFrequency - RX_OFFSET, 0 );
     }
 
     // Set the relay
