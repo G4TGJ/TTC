@@ -41,7 +41,7 @@ static bool menuTXDelay( bool bCW, bool bCCW, bool bShortPress, bool bLongPress,
 static bool menuTXClock( bool bCW, bool bCCW, bool bShortPress, bool bLongPress, bool bShortPressLeft, bool bLongPressLeft, bool bShortPressRight, bool bLongPressRight );
 static bool menuTXOut( bool bCW, bool bCCW, bool bShortPress, bool bLongPress, bool bShortPressLeft, bool bLongPressLeft, bool bShortPressRight, bool bLongPressRight );
 static bool menuXtalFreq( bool bCW, bool bCCW, bool bShortPress, bool bLongPress, bool bShortPressLeft, bool bLongPressLeft, bool bShortPressRight, bool bLongPressRight );
-static bool menuBFOFreq( bool bCW, bool bCCW, bool bShortPress, bool bLongPress, bool bShortPressLeft, bool bLongPressLeft, bool bShortPressRight, bool bLongPressRight );
+static bool menuIntermediateFreq( bool bCW, bool bCCW, bool bShortPress, bool bLongPress, bool bShortPressLeft, bool bLongPressLeft, bool bShortPressRight, bool bLongPressRight );
 static bool menuKeyerMode( bool bCW, bool bCCW, bool bShortPress, bool bLongPress, bool bShortPressLeft, bool bLongPressLeft, bool bShortPressRight, bool bLongPressRight );
 static bool menuBacklight( bool bCW, bool bCCW, bool bShortPress, bool bLongPress, bool bShortPressLeft, bool bLongPressLeft, bool bShortPressRight, bool bLongPressRight );
 
@@ -90,7 +90,7 @@ static const struct sMenuItem configMenu[NUM_CONFIG_MENUS] =
 {
     { "",               NULL },
     { "Xtal Frequency", menuXtalFreq },
-    { "BFO Frequency",  menuBFOFreq },
+    { "IF Frequency",   menuIntermediateFreq },
     { "Keyer Mode",     menuKeyerMode },
     { "Backlight",      menuBacklight },
 #ifdef VARIABLE_SIDETONE_VOLUME
@@ -348,8 +348,8 @@ static uint8_t txDelay = 10;
 // Set to true when transmitting
 static bool bTransmitting = false;
 
-// BFO frequency - 0 for direct conversion
-static uint32_t BFOFrequency;
+// Intermediate frequency - 0 for direct conversion
+static uint32_t intermediateFrequency;
 
 #ifdef VARIABLE_SIDETONE_VOLUME
 // Volume of the sidetone - controlled via PWM duty cycle
@@ -836,7 +836,7 @@ static void setRXFrequency( uint32_t freq )
     }
 
     // Set the oscillator frequency.
-    if( BFOFrequency == 0 )
+    if( intermediateFrequency == 0 )
     {
         // Direct conversion so set the correct quadrature phase shift.
         oscSetFrequency( RX_CLOCK_A, oscFreq, 0 );
@@ -845,8 +845,8 @@ static void setRXFrequency( uint32_t freq )
     else
     {
         // Superhet so set the LFO and BFO
-        oscSetFrequency( RX_CLOCK_A, freq + BFOFrequency, 0 );
-        oscSetFrequency( RX_CLOCK_B, BFOFrequency + RX_OFFSET, 0 );
+        oscSetFrequency( RX_CLOCK_A, freq + intermediateFrequency, 0 );
+        oscSetFrequency( RX_CLOCK_B, intermediateFrequency + RX_OFFSET, 0 );
     }
 
     // Set the relay
@@ -1963,17 +1963,17 @@ static bool menuXtalFreq( bool bCW, bool bCCW, bool bShortPress, bool bLongPress
     return bUsed;
 }
 
-// Menu for changing the BFO frequency (0 means direct conversion receiver)
+// Menu for changing the intermediate frequency (0 means direct conversion receiver)
 // Each digit can be changed individually
-static bool menuBFOFreq( bool bCW, bool bCCW, bool bShortPress, bool bLongPress, bool bShortPressLeft, bool bLongPressLeft, bool bShortPressRight, bool bLongPressRight )
+static bool menuIntermediateFreq( bool bCW, bool bCCW, bool bShortPress, bool bLongPress, bool bShortPressLeft, bool bLongPressLeft, bool bShortPressRight, bool bLongPressRight )
 {
     // When the menu is entered we are changing the first changeable digit of the
-    // BFO frequency i.e. 10MHz. This is character 5.
-    #define INITIAL_BFO_FREQ_CHANGE 10000000
-    #define INITIAL_BFO_FREQ_POS    5
+    // intermediate frequency i.e. 10MHz. This is character 5.
+    #define INITIAL_IF_CHANGE 10000000
+    #define INITIAL_IF_POS    5
 
     // The final changeable digit position
-    #define FINAL_BFO_FREQ_POS      12
+    #define FINAL_IF_POS      12
 
     // Set to true as expecting to use the presses etc
     bool bUsed = true;
@@ -1988,13 +1988,13 @@ static bool menuBFOFreq( bool bCW, bool bCCW, bool bShortPress, bool bLongPress,
     // If just entered the menu...
     if( !bCW && !bCCW && !bShortPress &&!bLongPress && !bShortPressLeft &&!bShortPressRight )
     {
-        // Start with the current BFO frequency
-        newFreq = oldFreq = BFOFrequency;
+        // Start with the current intermediate frequency
+        newFreq = oldFreq = intermediateFrequency;
         
         // Start with changing the first digit
         // i.e. the tens of MHz
-        freqChange = INITIAL_BFO_FREQ_CHANGE;
-        settingFreqPos = INITIAL_BFO_FREQ_POS;
+        freqChange = INITIAL_IF_CHANGE;
+        settingFreqPos = INITIAL_IF_POS;
         
         // Set the cursor on the digit to be changed
         displayCursor( settingFreqPos, MENU_LINE, cursorUnderline );
@@ -2010,9 +2010,9 @@ static bool menuBFOFreq( bool bCW, bool bCCW, bool bShortPress, bool bLongPress,
         if( bLongPress )
         {
             // Set back the original frequency
-            BFOFrequency = nvramReadBFOFreq();
+            intermediateFrequency = nvramReadIntermediateFreq();
 
-            // Retune to use the BFO frequency
+            // Retune to use the intermediate frequency
             setFrequencies();
 
             bUsed = false;
@@ -2021,8 +2021,8 @@ static bool menuBFOFreq( bool bCW, bool bCCW, bool bShortPress, bool bLongPress,
         // and quitting
         else if( bShortPress )
         {
-            // Write the new BFO frequency to NVRAM
-            nvramWriteBFOFreq( newFreq );
+            // Write the new intermediate frequency to NVRAM
+            nvramWriteIntermediateFreq( newFreq );
             
             // Take us out of the menu item
             enterVFOMode();
@@ -2040,9 +2040,9 @@ static bool menuBFOFreq( bool bCW, bool bCCW, bool bShortPress, bool bLongPress,
             displayCursor( 0, 0, cursorOff );
 
             // Set back the original frequency
-            BFOFrequency = nvramReadBFOFreq();
+            intermediateFrequency = nvramReadIntermediateFreq();
 
-            // Retune to use the BFO frequency
+            // Retune to use the intermediate frequency
             setFrequencies();
 
             // This ensures the long press is processed to quit
@@ -2071,7 +2071,7 @@ static bool menuBFOFreq( bool bCW, bool bCCW, bool bShortPress, bool bLongPress,
             {
                 // Clock wise so increasing in frequency provided we aren't
                 // going to go over the maximum
-                if( newFreq <= (MAX_BFO_FREQUENCY - freqChange) )
+                if( newFreq <= (MAX_INTERMEDIATE_FREQUENCY - freqChange) )
                 {
                     newFreq += freqChange;
                 }
@@ -2080,7 +2080,7 @@ static bool menuBFOFreq( bool bCW, bool bCCW, bool bShortPress, bool bLongPress,
             {
                 // Counter clockwise so decreasing in frequency provided we
                 // aren't going to go under the minimum
-                if( newFreq >= (MIN_BFO_FREQUENCY + freqChange) )
+                if( newFreq >= (MIN_INTERMEDIATE_FREQUENCY + freqChange) )
                 {
                     newFreq -= freqChange;
                 }
@@ -2093,8 +2093,8 @@ static bool menuBFOFreq( bool bCW, bool bCCW, bool bShortPress, bool bLongPress,
                 {
                     // Currently at the lowest position so start at the top
                     // again
-                    freqChange = INITIAL_BFO_FREQ_CHANGE;
-                    settingFreqPos = INITIAL_BFO_FREQ_POS;
+                    freqChange = INITIAL_IF_CHANGE;
+                    settingFreqPos = INITIAL_IF_POS;
                 }
                 else
                 {
@@ -2108,12 +2108,12 @@ static bool menuBFOFreq( bool bCW, bool bCCW, bool bShortPress, bool bLongPress,
             }
             else if( bShortPressLeft )
             {
-                if( freqChange == INITIAL_BFO_FREQ_CHANGE )
+                if( freqChange == INITIAL_IF_CHANGE )
                 {
                     // Currently at the highest position so start at the bottom
                     // again
                     freqChange = 1;
-                    settingFreqPos = FINAL_BFO_FREQ_POS;
+                    settingFreqPos = FINAL_IF_POS;
                 }
                 else
                 {
@@ -2128,17 +2128,17 @@ static bool menuBFOFreq( bool bCW, bool bCCW, bool bShortPress, bool bLongPress,
 
             // Display the current frequency
             char buf[TEXT_BUF_LEN];
-            sprintf( buf, "BFO: %08lu", newFreq);
+            sprintf( buf, "IF: %08lu", newFreq);
             displayText( MENU_LINE, buf, true );
 
             // If the frequency is to change...
-            if( newFreq != BFOFrequency )
+            if( newFreq != intermediateFrequency )
             {
                 // Set it in the oscillator driver
-                BFOFrequency = newFreq;
+                intermediateFrequency = newFreq;
                 
                 // Set the RX and TX frequencies again - this will pick up the
-                // new BFO frequency
+                // new intermediate frequency
                 setFrequencies();
             }
         }
@@ -2855,12 +2855,12 @@ int main(void)
     // Set the band from the NVRAM
     // This also updates the display with frequency and wpm.
 #ifdef SOTA2
-    // SOTA2 is direct conversion so BFO frequency is always 0
-    BFOFrequency = 0;
+    // SOTA2 is direct conversion so intermediate frequency is always 0
+    intermediateFrequency = 0;
     setBand( DEFAULT_BAND );
 #else
-    // Get the BFO frequency from NVRAM
-    BFOFrequency = nvramReadBFOFreq();
+    // Get the intermediate frequency from NVRAM
+    intermediateFrequency = nvramReadIntermediateFreq();
 
     setBand( nvramReadBand() );
 #endif
