@@ -76,6 +76,7 @@ static bool menuTXDelay( uint16_t inputState );
 static bool menuTXClock( uint16_t inputState );
 static bool menuTXOut( uint16_t inputState );
 static bool menuXtalFreq( uint16_t inputState );
+static bool menuIntermediateFreq( uint16_t inputState );
 static bool menuBFOFreq( uint16_t inputState );
 static bool menuKeyerMode( uint16_t inputState );
 static bool menuIGain( uint16_t inputState );
