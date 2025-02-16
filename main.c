@@ -22,8 +22,11 @@
 #include "morse.h"
 #include "rotary.h"
 #include "pushbutton.h"
+
+#ifdef PSDR
 #include "sdr.h"
 #include "WM8960.h"
+#endif
 
 #ifdef LCD_DISPLAY
 #include "display.h"
@@ -62,9 +65,9 @@
 #define bShortPressRight    (inputState & SHORT_PRESS(RIGHT_BUTTON))
 #define bLongPressRight     (inputState & LONG_PRESS(RIGHT_BUTTON))
 
+#ifndef SOTA2
 // Menu functions
 static bool menuVFOBand( uint16_t inputState );
-static bool menuSDR( uint16_t inputState );
 static bool menuVFOMode( uint16_t inputState );
 static bool menuBreakIn( uint16_t inputState );
 static bool menuTestRXMute( uint16_t inputState );
@@ -77,8 +80,10 @@ static bool menuTXClock( uint16_t inputState );
 static bool menuTXOut( uint16_t inputState );
 static bool menuXtalFreq( uint16_t inputState );
 static bool menuIntermediateFreq( uint16_t inputState );
-static bool menuBFOFreq( uint16_t inputState );
 static bool menuKeyerMode( uint16_t inputState );
+
+#ifdef PSDR
+static bool menuSDR( uint16_t inputState );
 static bool menuIGain( uint16_t inputState );
 static bool menuQGain( uint16_t inputState );
 static bool menuIQGain( uint16_t inputState );
@@ -90,9 +95,12 @@ static bool menuMuteFactor( uint16_t inputState );
 static bool menuLeftADCVolume( uint16_t inputState );
 static bool menuRightADCVolume( uint16_t inputState );
 static bool menuIQPhasing( uint16_t inputState );
-
 #ifdef LCD_DISPLAY
 static bool menuFilter( uint16_t inputState );
+#endif
+#endif
+
+#ifdef LCD_DISPLAY
 static bool menuBacklight( uint16_t inputState );
 #endif
 
@@ -116,6 +124,7 @@ static const struct sMenuItem vfoMenu[NUM_VFO_MENUS] =
     { "VFO Mode",       menuVFOMode },
 };
 
+#ifdef PSDR
 #ifdef LCD_DISPLAY
 #define NUM_SDR_MENUS 14
 #else
@@ -142,6 +151,7 @@ static const struct sMenuItem sdrMenu[NUM_SDR_MENUS] =
 };
 
 #define SDR_FILTER_MENU_ITEM 2
+#endif
 
 #define NUM_TEST_MENUS 10
 static const struct sMenuItem testMenu[NUM_TEST_MENUS] =
@@ -190,7 +200,9 @@ static const struct sMenuItem configMenu[NUM_CONFIG_MENUS] =
 
 enum eMenuTopLevel
 {
+#ifdef PSDR
     SDR_MENU,
+#endif
     VFO_MENU,
     TEST_MENU,
     CONFIG_MENU,
@@ -205,7 +217,9 @@ static const struct
 }
 menu[NUM_MENUS] =
 {
+#ifdef PSDR
     { "SDR",    sdrMenu,    NUM_SDR_MENUS },
+#endif
     { "VFO",    vfoMenu,    NUM_VFO_MENUS },
     { "Test",   testMenu,   NUM_TEST_MENUS },
     { "Config", configMenu, NUM_CONFIG_MENUS },
@@ -279,26 +293,42 @@ static enum eBacklightMode currentBacklightMode;
 // The last time the backlight went on in auto mode
 static uint32_t lastBacklightTime;
 
+#ifdef PSDR
 // The last time we changed the volume
 static uint32_t lastVolumeTime;
-
+#endif
+#endif
 #endif
 
 // Band frequencies
+#ifdef SOTA2
+#define NUM_BANDS 2
+#else
 #define NUM_BANDS 13
+#endif
 
-static const struct  
+static const struct
 {
     char     *bandName;     // Text for the menu
     uint32_t  minFreq;      // Min band frequency
     uint32_t  maxFreq;      // Max band frequency
     uint32_t  defaultFreq;  // Where to start on this band e.g. QRP calling
+    #ifdef SOTA2
+    uint32_t  leftFreq;     // Below this frequency light the left LED
+    uint32_t  rightFreq;    // Above this frequency light the right LED
+    #endif
     bool      bTXEnabled;   // True if TX enabled on this band
     uint8_t   relayState;   // What state to put the relays in on this band
+    #ifndef SOTA2
     bool      bQuickVFOMenu;// True if this band appears in the quick VFO menu
+    #endif
 }
 band[NUM_BANDS] =
 {
+    #ifdef SOTA2
+    { "40m",      7000000,  7199999,  7030000,   7020000,  7040000, TX_ENABLED_40M,  RELAY_STATE_40M },
+    { "20m",     14000000, 14349999, 14060000,  14050000, 14070000, TX_ENABLED_20M,  RELAY_STATE_20M },
+    #else
     { "160m",     1810000,  1999999,  1836000, TX_ENABLED_160M, RELAY_STATE_160M, QUICK_VFO_160M },
     { "80m",      3500000,  3799999,  3560000, TX_ENABLED_80M,  RELAY_STATE_80M,  QUICK_VFO_80M },
     { "RWM 4996", 4996000,  4996000,  4996000, false,           RELAY_STATE_60M,  false },
@@ -312,6 +342,7 @@ band[NUM_BANDS] =
     { "15m",     21000000, 21449999, 21060000, TX_ENABLED_15M,  RELAY_STATE_15M,  QUICK_VFO_15M },
     { "12m",     24890000, 24989999, 24906000, TX_ENABLED_12M,  RELAY_STATE_12M,  QUICK_VFO_12M },
     { "10m",     28000000, 29699999, 28060000, TX_ENABLED_10M,  RELAY_STATE_10M,  QUICK_VFO_10M },
+    #endif
 };
 
 // Current band - initialised from NVRAM
@@ -320,6 +351,7 @@ static uint8_t currentBand;
 // Current relay state - always set from the frequency
 static uint8_t currentRelay;
 
+#ifndef SOTA2
 // Is the VFO on the first or second frequency line?
 static bool bVFOFirstLine = true;
 
@@ -328,6 +360,8 @@ static uint8_t settingFreqPos;
 
 // True if asking whether to save the frequency setting
 static bool bAskToSaveSettingFreq = false;
+
+#endif
 
 // Set to true if break in is enabled
 static bool bBreakIn = true;
@@ -343,6 +377,8 @@ enum eVFOMode
     vfoXIT,
     vfoNumModes // Num of VFO modes. Must be the last entry.
 };
+
+#ifndef SOTA2
 
 // Display mode
 enum eDisplayMode
@@ -411,6 +447,7 @@ static int modeX, modeY, modeWidth;
 // In fast mode, if the dial is spun the rate speeds up
 #define VFO_SPEED_UP_DIFF  150  // If dial clicks are no more than this ms apart then speed up
 #define VFO_SPEED_UP_FACTOR 10  // Multiply the rate by this
+#endif
 
 static void rotaryVFO( uint16_t inputState );
 
@@ -450,11 +487,13 @@ static bool bTXOutEnabled = true;
 // Set to true when sidetone enabled
 static bool bSidetone = true;
 
+#ifdef PSDR
 // Set to true when the preamp is on
 static bool bPreampOn = false;
 
 // Select normal, binaural or peaked output
 extern enum eOutput outputMode;
+#endif
 
 // Delay before muting and unmuting
 static uint8_t muteDelay = 5;
@@ -470,6 +509,7 @@ static uint32_t intermediateFrequency;
 // Whether IF is above or below
 extern bool ifBelow;
 
+#ifdef PSDR
 // Keep track of ADC and output overload
 extern bool adcOverload;
 static bool prevAdcOverload;
@@ -498,6 +538,7 @@ static bool bVolumeMode = true;
 
 // The front end input shift
 //extern int inputShift;
+#endif
 
 // Works out the current RX frequency from the VFO settings
 static uint32_t getRXFreq()
@@ -778,7 +819,9 @@ static void drawCursor( int x, int y, int width )
 static void update_cursor()
 {
     uint8_t line = FREQ_LINE;
+#ifdef OLED_DISPLAY
     uint8_t y = vfoCursorTransition[cursorIndex].sy;
+#endif
 
     // Only update the cursor if in VFO mode
     if( currentMode == modeVFO )
@@ -786,8 +829,9 @@ static void update_cursor()
         // If split, RIT or XIT mode may need to put the cursor on the other line
         if( bVFOSplit || vfoState[currentVFO].mode != vfoSimplex )
         {
+#ifdef OLED_DISPLAY
             y = vfoCursorTransition[cursorIndex].shy;
-
+#endif
             // Display the cursor on the correct line
             if( !bVFOFirstLine )
             {
@@ -904,13 +948,24 @@ static void displayFrequencyLCD( void )
 }
 #endif
 
+static bool getCWReverse( void )
+{
+    switch( nvramReadTRXMode() )
+    {
+        case cwRevMode:
+        case lsbMode:
+            return true;
+            
+        default:
+            return false;
+    }
+}
+
 // Displays the frequencies on the screen
 // Normally displays one frequency on the top line but in
 // split or RIT/XIT modes uses two lines
 static void displayFrequencies( void )
 {
-    char buf[TEXT_BUF_LEN];
-
     // Frequency for the first and second lines
     uint32_t freq1 = 0;
     uint32_t freq2 = 0;
@@ -982,7 +1037,9 @@ static void displayFrequencies( void )
     // Line 1 has the RX frequency
     freq1 = getRXFreq();
 
+#ifdef OLED_DISPLAY
     bool bigFont = true;
+#endif
 
     // All modes other than simplex have a second line
     if( bVFOSplit || (vfoState[currentVFO].mode != vfoSimplex) )
@@ -1034,8 +1091,6 @@ static void displayFrequencies( void )
 
 static void displayMorseWpm( void )
 {
-    char buf[TEXT_BUF_LEN];
-
     int wpm = morseGetWpm();
 
     // Create the text for the morse speed
@@ -1068,6 +1123,7 @@ static void displayMorseWpm( void )
 #endif
 }
 
+#ifdef PSDR
 static void displayVol( void )
 {
 //    sprintf( volText, "%c:%d%c%02d", ifBelow ? '-' : '+', inputShift, bVolumeMode ? '>' : '<', ioGetVolume());
@@ -1145,6 +1201,7 @@ static void displayPreamp( void )
 #endif
 #endif
 }
+#endif
 
 #ifdef OLED_DISPLAY
 
@@ -1247,8 +1304,7 @@ static void setRXFrequency( uint32_t freq )
             break;
     }
 
-    //offset = 0;
-
+#ifdef PSDR
     if( ifBelow )
     {
         freq -= INTERMEDIATE_FREQUENCY;
@@ -1258,17 +1314,16 @@ static void setRXFrequency( uint32_t freq )
         freq += INTERMEDIATE_FREQUENCY;
     }
 
+    oscSetFrequency( RX_CLOCK_A, freq, 0 );
+    oscSetFrequency( RX_CLOCK_B, freq, q );
+#else
+
     // Set the oscillator frequency.
     if( intermediateFrequency == 0 )
     {
         // Direct conversion so set the correct quadrature phase shift.
-#if 1
-        oscSetFrequency( RX_CLOCK_A, freq, 0 );
-        oscSetFrequency( RX_CLOCK_B, freq, q );
-#else
         oscSetFrequency( RX_CLOCK_A, freq + offset, 0 );
         oscSetFrequency( RX_CLOCK_B, freq + offset, q );
-#endif
     }
     else
     {
@@ -1276,6 +1331,7 @@ static void setRXFrequency( uint32_t freq )
         oscSetFrequency( RX_CLOCK_A, freq + intermediateFrequency, 0 );
         oscSetFrequency( RX_CLOCK_B, intermediateFrequency - RX_OFFSET, 0 );
     }
+#endif
 
     // Set the relay
     setRelay();
@@ -1395,6 +1451,7 @@ static void enterVFOBandMenu()
     turnCursorOff();    
 }
 
+#ifdef PSDR
 #ifdef LCD_DISPLAY
 // Quick way to the filter menu
 static void enterSDRFilterMenu()
@@ -1413,6 +1470,7 @@ static void enterSDRFilterMenu()
 
     turnCursorOff();    
 }
+#endif
 #endif
 
 // Go back to VFO mode
@@ -2032,6 +2090,7 @@ static bool menuVFOMode( uint16_t inputState )
     return bUsed;
 }
 
+#ifdef PSDR
 #ifdef LCD_DISPLAY
 static bool menuFilter( uint16_t inputState )
 {
@@ -2192,7 +2251,7 @@ static bool menuSDR( uint16_t inputState )
 
     return bUsed;
 }
-
+#endif
 
 static bool menuBreakIn( uint16_t inputState )
 {
@@ -2295,6 +2354,7 @@ static bool menuRXClock( uint16_t inputState )
     return bUsed;
 }
 
+#ifdef PSDR
 static bool menuRoofing( uint16_t inputState )
 {
     // Set to true if we have used the presses etc
@@ -2366,6 +2426,7 @@ static bool menuAdjustPhase( uint16_t inputState )
     
     return bUsed;
 }
+#endif
 
 static bool menuTXDelay( uint16_t inputState )
 {
@@ -3113,6 +3174,7 @@ static bool menuSidetoneVolume( uint16_t inputState )
 }
 #endif
 
+#ifdef PSDR
 static bool menuIGain( uint16_t inputState )
 {
     // Set to true if we have used the presses etc
@@ -3433,6 +3495,7 @@ static bool menuIQPhasing( uint16_t inputState )
     
     return bUsed;
 }
+#endif
 
 // Gets a VFO frequency - usually called from CAT control
 uint32_t getVFOFreq( uint8_t vfo )
@@ -3768,6 +3831,7 @@ static void rotaryWpm( uint16_t inputState )
     }
 }
 
+#ifdef PSDR
 static void handleVolume()
 {
     bool bVolumeShortPress;
@@ -3924,6 +3988,7 @@ static void togglePreamp( void )
     }
     displayPreamp();
 }
+#endif
 
 // See if the main rotary control has been touched and handle its movement
 // This will update either the VFO or the wpm or the menu
@@ -3969,6 +4034,7 @@ static void handleRotary()
             lastBacklightTime = millis();
         }
 #endif
+#ifdef PSDR
 #ifdef OLED_DISPLAY
         if( inputState & SHORT_PRESS(BUTTON_A) )
         {
@@ -4004,7 +4070,9 @@ static void handleRotary()
             }
             displayOutputMode();
         }
-        else switch( currentMode )
+        else
+#endif
+        switch( currentMode )
         {
             case modeMenu:
                 rotaryMenu(inputState);
@@ -4045,6 +4113,7 @@ static void loop()
         }
     }
 
+#ifdef PSDR
     if( displayMode == displayVolume )
     {
         if( lastVolumeTime &&
@@ -4058,7 +4127,7 @@ static void loop()
             lastVolumeTime = 0;
         }
     }
-
+#endif
 #endif
 
     // See if the morse paddles or straight key have been pressed
@@ -4068,14 +4137,16 @@ static void loop()
         // Deal with the rotary control/pushbutton
         handleRotary();
 
+#ifdef PSDR
         // Deal with the volume control
         handleVolume();
+#endif
 
 #ifdef CAT_CONTROL
         // Do CAT control
         catControl();
 #endif
-#if 1
+#ifdef PSDR
         static uint32_t lastInputTime;
         static uint8_t lastScale;
 
@@ -4084,19 +4155,6 @@ static void loop()
         {
             lastInputTime = now;
 
-#if 0
-            extern int minValueI, maxValueI;
-            extern int minValueQ, maxValueQ;
-
-            char buf[50];
-            sprintf(buf, "%6d %6d", minValueI, maxValueI );
-            oledWriteString( menuX, menuY, buf, WPM_FONT, true);
-            sprintf(buf, "%6d %6d", minValueQ, maxValueQ );
-            oledWriteString( modeX, modeY, buf, WPM_FONT, true);
-        
-            minValueI = maxValueI = 0;
-            minValueQ = maxValueQ = 0;
-#endif
             // Display change in ADC or output overload state
             if( (adcOverload != prevAdcOverload) ||
                 (outOverload != prevOutOverload)
@@ -4135,13 +4193,13 @@ static void loop()
 
 void screenInit( void )
 {
-    int i;
-
 #ifdef LCD_DISPLAY
     displayInit();
 #endif
 
 #ifdef OLED_DISPLAY
+    int i;
+
     oledInit();
 
     // Calculate the OLED cursor positions
@@ -4227,9 +4285,12 @@ void screenInit( void )
     displayFilter();
 #endif
 
-    displayVol();
     displayMorseWpm();
+
+#ifdef PSDR
+    displayVol();
     displayPreamp();
+#endif
 }
 
 int main(void)
