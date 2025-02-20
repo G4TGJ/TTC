@@ -2218,15 +2218,7 @@ static void enterSimplex()
  */
 static void rotaryQuickMenu( uint16_t inputState )
 {
-    // Rotary movement continues to operate the VFO in simplex mode
-    if( bCW || bCCW )
-    {
-        if( !bVFOSplit && vfoState[currentVFO].mode == vfoSimplex )
-        {
-            rotaryVFO(inputState);
-        }
-    }
-    else if( bShortPressRight )
+    if( bShortPressRight )
     {
         if( quickMenuItem == (NUM_QUICK_MENUS-1))
         {
