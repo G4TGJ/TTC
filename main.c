@@ -314,22 +314,22 @@ static const struct
     uint32_t  minFreq;      // Min band frequency
     uint32_t  maxFreq;      // Max band frequency
     uint32_t  defaultFreq;  // Where to start on this band e.g. QRP calling
-    #ifdef SOTA2
+#ifdef SOTA2
     uint32_t  leftFreq;     // Below this frequency light the left LED
     uint32_t  rightFreq;    // Above this frequency light the right LED
-    #endif
+#endif
     bool      bTXEnabled;   // True if TX enabled on this band
     uint8_t   relayState;   // What state to put the relays in on this band
-    #ifndef SOTA2
+#ifndef SOTA2
     bool      bQuickVFOMenu;// True if this band appears in the quick VFO menu
-    #endif
+#endif
 }
 band[NUM_BANDS] =
 {
-    #ifdef SOTA2
+#ifdef SOTA2
     { "40m",      7000000,  7199999,  7030000,   7020000,  7040000, TX_ENABLED_40M,  RELAY_STATE_40M },
     { "20m",     14000000, 14349999, 14060000,  14050000, 14070000, TX_ENABLED_20M,  RELAY_STATE_20M },
-    #else
+#else
     { "160m",     1810000,  1999999,  1836000, TX_ENABLED_160M, RELAY_STATE_160M, QUICK_VFO_160M },
     { "80m",      3500000,  3799999,  3560000, TX_ENABLED_80M,  RELAY_STATE_80M,  QUICK_VFO_80M },
     { "RWM 4996", 4996000,  4996000,  4996000, false,           RELAY_STATE_60M,  false },
@@ -343,7 +343,7 @@ band[NUM_BANDS] =
     { "15m",     21000000, 21449999, 21060000, TX_ENABLED_15M,  RELAY_STATE_15M,  QUICK_VFO_15M },
     { "12m",     24890000, 24989999, 24906000, TX_ENABLED_12M,  RELAY_STATE_12M,  QUICK_VFO_12M },
     { "10m",     28000000, 29699999, 28060000, TX_ENABLED_10M,  RELAY_STATE_10M,  QUICK_VFO_10M },
-    #endif
+#endif
 };
 
 // Current band - initialised from NVRAM
@@ -897,6 +897,42 @@ static void drawCursor( int x, int y, int width )
 }
 #endif
 
+#ifdef SOTA2
+// For the SOTA transceiver we have 3 LEDs instead of an LCD.
+// The default frequency is the centre frequency (e.g. 14060)
+// and we have left and right frequencies (e.g. 14050 and 14070)
+// Centre LED lit between the left and right frequencies
+// Left LED lit below the centre
+// Right LED lit above the centre
+// All LEDs light out of band
+static void displayFrequencies( void )
+{
+    uint32_t freq = getRXFreq();
+
+    // Check we are in band
+    if( (freq >= band[currentBand].minFreq) &&
+    (freq <= band[currentBand].maxFreq) )
+    {
+        // Centre LED is lit if between the left and right frequencies
+        ioWriteCentreLED( (freq >= band[currentBand].leftFreq) &&
+        (freq <= band[currentBand].rightFreq) );
+
+        // Left LED is lit if below the centre frequency
+        ioWriteLeftLED( freq < band[currentBand].defaultFreq);
+
+        // Right LED is lit if above the centre frequency
+        ioWriteRightLED( freq > band[currentBand].defaultFreq );
+    }
+    else
+    {
+        // Out of band so light all the LEDs
+        ioWriteLeftLED( true );
+        ioWriteCentreLED( true );
+        ioWriteRightLED( true );
+    }
+}
+
+#else
 /**
  * @brief Updates the cursor position based on the current mode and VFO state.
  *
@@ -1429,6 +1465,7 @@ static void displayFilter( void )
     oledWriteString( filterX, filterY, ioGetFilterText(), FILTER_FONT, true );
 }
 #endif
+#endif
 
 /**
  * @brief Sets the RX frequency.
@@ -1446,6 +1483,10 @@ static void setRXFrequency( uint32_t freq )
     int offset = 0;
     int q = 0;
 
+#ifdef SOTA2
+    offset = -RX_OFFSET;
+    q = -1;
+#else
     switch( nvramReadTRXMode() )
     {
         default:
@@ -1469,6 +1510,7 @@ static void setRXFrequency( uint32_t freq )
             q = -1;
             break;
     }
+#endif
 
 #ifdef PSDR
     if( ifBelow )
@@ -1520,9 +1562,12 @@ static void setFrequencies()
 
     // Ensure the display and cursor reflect this
     displayFrequencies();
+#ifndef SOTA2
     updateCursor();
+#endif
 }
 
+#ifndef SOTA2
 // Turn off the cursor
 /**
  * @brief Turns off the cursor on the display.
@@ -1539,6 +1584,7 @@ static void turnCursorOff( void )
     drawCursor( 0, 0, 0 );
 #endif
 }
+#endif
 
 /**
  * @brief Sets the band to the specified new band.
@@ -1566,6 +1612,7 @@ static void setBand( int newBand )
     setFrequencies();
 }
 
+#ifndef SOTA2
 /**
  * @brief Displays the current menu or sub-menu text on the screen.
  *
@@ -4291,6 +4338,7 @@ bool getTransmitting()
 {
     return bTransmitting;
 }
+#endif
 
 /**
  * @brief Adjusts the VFO frequency and offset.
@@ -4314,6 +4362,44 @@ static void adjustVFO( uint8_t vfo, int32_t freqChange, int32_t offsetChange )
     setFrequencies();
 }
 
+#ifdef SOTA2
+static void rotaryVFO( uint16_t inputState )
+{
+    // How much to change frequency by
+    int16_t change = SOTA2_FREQ_CHANGE;
+    
+    // Rotation is a change up or down in frequency
+    if( bCW )
+    {
+        // Leave change as is (+ve)
+    }
+    else if( bCCW )
+    {
+        // Counter clockwise means change is -ve
+        change = -change;
+    }
+    else
+    {
+        // Control not moved so no change
+        change = 0;
+    }
+
+    if( bShortPress )
+    {
+        // A short press takes us back to the home frequency for the current band
+        setBand( currentBand );
+    }
+    else if( bLongPress )
+    {
+        // A long press changes band
+        setBand( (currentBand+1)%NUM_BANDS );
+    }
+    else
+    {
+        adjustVFO( currentVFO, change, 0);
+    }
+}
+#else
 /**
  * @brief Handles the rotary control while in the VFO mode.
  *
@@ -4730,6 +4816,7 @@ static void togglePreamp( void )
     displayPreamp();
 }
 #endif
+#endif
 
 /**
  * @brief Handles the rotary control and pushbuttons.
@@ -4771,6 +4858,9 @@ static void handleRotary()
     // Call the handler if anything has happened
     if( inputState )
     {
+#ifdef SOTA2
+        rotaryVFO( inputState );
+#else
 #ifdef LCD_DISPLAY
         // If we have an auto backlight then turn it on and note the time
         if( currentBacklightMode == backlightAuto )
@@ -4836,6 +4926,7 @@ static void handleRotary()
                 rotaryVFO(inputState);
                 break;
         }
+#endif
     }
 }
 
@@ -4849,6 +4940,7 @@ static void handleRotary()
  */
 static void loop()
 {
+#ifndef SOTA2
 #ifdef LCD_DISPLAY
     // If the backlight mode is auto then see if it is time
     // to turn off the backlight
@@ -4878,6 +4970,7 @@ static void loop()
             lastVolumeTime = 0;
         }
     }
+#endif
 #endif
 #endif
 
@@ -4951,6 +5044,7 @@ static void loop()
  */
 void screenInit( void )
 {
+#ifndef SOTA2
 #ifdef LCD_DISPLAY
     displayInit();
 #endif
@@ -5048,6 +5142,7 @@ void screenInit( void )
 #ifdef PSDR
     displayVol();
     displayPreamp();
+#endif
 #endif
 }
 

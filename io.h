@@ -42,10 +42,14 @@ void ioWritePreampOff();
 // Switch a band relay output on or off
 void ioWriteBandRelay( uint8_t relay, bool bOn );
 
-#ifdef VARIABLE_SIDETONE_VOLUME
 void ioSetSidetoneVolume( uint8_t vol );
+
+// Turn LEDs on or off
+void ioWriteRightLED( bool bOn );
+void ioWriteCentreLED( bool bOn );
+void ioWriteLeftLED( bool bOn );
+
 uint8_t ioGetSidetoneVolume( void );
-#endif
 
 void ioSetVolume( uint8_t volume );
 uint8_t ioGetVolume( void );
