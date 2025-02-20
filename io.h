@@ -18,11 +18,10 @@ bool ioReadDotPaddle();
 bool ioReadDashPaddle();
 
 // Read the rotary control and switch
-void ioReadRotary( bool *pbA, bool *pbB, bool *pbSw );
+void ioReadRotary( int rotaryNum, bool *pbA, bool *pbB, bool *pbSw );
 
-// Read the left and right pushbuttons
-bool ioReadLeftButton();
-bool ioReadRightButton();
+// Read the pushbuttons
+bool ioReadButton( uint8_t button );
 
 // Set the morse output high or low
 void ioWriteMorseOutputHigh();
@@ -36,18 +35,45 @@ void ioWriteRXEnableHigh();
 void ioWriteSidetoneOn();
 void ioWriteSidetoneOff();
 
+// Switch the preamp enable output on or off
+void ioWritePreampOn();
+void ioWritePreampOff();
+
 // Switch a band relay output on or off
 void ioWriteBandRelay( uint8_t relay, bool bOn );
 
-#ifdef SOTA2
+void ioSetSidetoneVolume( uint8_t vol );
+
 // Turn LEDs on or off
 void ioWriteRightLED( bool bOn );
 void ioWriteCentreLED( bool bOn );
 void ioWriteLeftLED( bool bOn );
-#endif
 
-#ifdef VARIABLE_SIDETONE_VOLUME
-void ioWriteSidetoneDutyCycle( uint8_t duty );
-#endif
+uint8_t ioGetSidetoneVolume( void );
+
+void ioSetVolume( uint8_t volume );
+uint8_t ioGetVolume( void );
+
+uint8_t ioGetFilter( void );
+const char *ioGetFilterText( void );
+void ioSetFilter( uint8_t filter );
+uint8_t ioGetNumFilters( void );
+
+uint8_t ioGetHilbertFilter( void );
+const char *ioGetHilbertFilterText( void );
+void ioSetHilbertFilter( uint8_t filter );
+uint8_t ioGetNumHilbertFilters( void );
+
+// Set the IF frequency
+void ioSetIF( void );
+
+// Select normal, binaural or peaked output
+enum eOutput
+{
+    NORMAL_OUTPUT = 0,
+    BINAURAL_OUTPUT,
+    PEAKED_OUTPUT,
+    NUM_OUTPUTS
+};
 
 #endif //IO_H

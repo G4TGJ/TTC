@@ -10,6 +10,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
 
 #include "config.h"
 #include "main.h"
@@ -17,36 +18,94 @@
 #include "osc.h"
 #include "millis.h"
 #include "nvram.h"
-#include "display.h"
 #include "lcd.h"
 #include "morse.h"
 #include "rotary.h"
 #include "pushbutton.h"
 
+#ifdef PSDR
+#include "sdr.h"
+#include "WM8960.h"
+#endif
+
+#ifdef LCD_DISPLAY
+#include "display.h"
+#endif
+
+#ifdef OLED_DISPLAY
+#include "ssd1306.h"
+#include "font.h"
+#endif
+
 #ifdef CAT_CONTROL
 #include "cat.h"
 #endif
 
+// Bit map for the various rotary and pushbutton inputs
+#define ROTARY_CW               0x0001
+#define ROTARY_CCW              0x0002
+#define ROTARY_SHORT_PRESS      0x0004
+#define ROTARY_LONG_PRESS       0x0008
+#define BUTTON_SHORT_PRESS      0x0010
+#define BUTTON_LONG_PRESS       0x0020
+
+// There will be several buttons (as well as the rotary button) so macros for
+// these
+#define SHORT_PRESS(button)     (BUTTON_SHORT_PRESS<<((button)*2))
+#define LONG_PRESS(button)      (BUTTON_LONG_PRESS <<((button)*2))
+
+// Previously these were parameters to the various functions that handle the input
+// so replace with definitions that access the bitmap to save changing all the code
+#define bCW                 (inputState & ROTARY_CW)
+#define bCCW                (inputState & ROTARY_CCW)
+#define bShortPress         (inputState & ROTARY_SHORT_PRESS)
+#define bLongPress          (inputState & ROTARY_LONG_PRESS)
+#define bShortPressLeft     (inputState & SHORT_PRESS(LEFT_BUTTON))
+#define bLongPressLeft      (inputState & LONG_PRESS(LEFT_BUTTON))
+#define bShortPressRight    (inputState & SHORT_PRESS(RIGHT_BUTTON))
+#define bLongPressRight     (inputState & LONG_PRESS(RIGHT_BUTTON))
+
 #ifndef SOTA2
 // Menu functions
-static bool menuVFOBand( bool bCW, bool bCCW, bool bShortPress, bool bLongPress, bool bShortPressLeft, bool bLongPressLeft, bool bShortPressRight, bool bLongPressRight );
-static bool menuVFOMode( bool bCW, bool bCCW, bool bShortPress, bool bLongPress, bool bShortPressLeft, bool bLongPressLeft, bool bShortPressRight, bool bLongPressRight );
-static bool menuBreakIn( bool bCW, bool bCCW, bool bShortPress, bool bLongPress, bool bShortPressLeft, bool bLongPressLeft, bool bShortPressRight, bool bLongPressRight );
-static bool menuTestRXMute( bool bCW, bool bCCW, bool bShortPress, bool bLongPress, bool bShortPressLeft, bool bLongPressLeft, bool bShortPressRight, bool bLongPressRight );
-static bool menuSidetone( bool bCW, bool bCCW, bool bShortPress, bool bLongPress, bool bShortPressLeft, bool bLongPressLeft, bool bShortPressRight, bool bLongPressRight );
-static bool menuRXClock( bool bCW, bool bCCW, bool bShortPress, bool bLongPress, bool bShortPressLeft, bool bLongPressLeft, bool bShortPressRight, bool bLongPressRight );
-static bool menuUnmuteDelay( bool bCW, bool bCCW, bool bShortPress, bool bLongPress, bool bShortPressLeft, bool bLongPressLeft, bool bShortPressRight, bool bLongPressRight );
-static bool menuMuteDelay( bool bCW, bool bCCW, bool bShortPress, bool bLongPress, bool bShortPressLeft, bool bLongPressLeft, bool bShortPressRight, bool bLongPressRight );
-static bool menuTXDelay( bool bCW, bool bCCW, bool bShortPress, bool bLongPress, bool bShortPressLeft, bool bLongPressLeft, bool bShortPressRight, bool bLongPressRight );
-static bool menuTXClock( bool bCW, bool bCCW, bool bShortPress, bool bLongPress, bool bShortPressLeft, bool bLongPressLeft, bool bShortPressRight, bool bLongPressRight );
-static bool menuTXOut( bool bCW, bool bCCW, bool bShortPress, bool bLongPress, bool bShortPressLeft, bool bLongPressLeft, bool bShortPressRight, bool bLongPressRight );
-static bool menuXtalFreq( bool bCW, bool bCCW, bool bShortPress, bool bLongPress, bool bShortPressLeft, bool bLongPressLeft, bool bShortPressRight, bool bLongPressRight );
-static bool menuIntermediateFreq( bool bCW, bool bCCW, bool bShortPress, bool bLongPress, bool bShortPressLeft, bool bLongPressLeft, bool bShortPressRight, bool bLongPressRight );
-static bool menuKeyerMode( bool bCW, bool bCCW, bool bShortPress, bool bLongPress, bool bShortPressLeft, bool bLongPressLeft, bool bShortPressRight, bool bLongPressRight );
-static bool menuBacklight( bool bCW, bool bCCW, bool bShortPress, bool bLongPress, bool bShortPressLeft, bool bLongPressLeft, bool bShortPressRight, bool bLongPressRight );
+static bool menuVFOBand( uint16_t inputState );
+static bool menuVFOMode( uint16_t inputState );
+static bool menuBreakIn( uint16_t inputState );
+static bool menuTestRXMute( uint16_t inputState );
+static bool menuSidetone( uint16_t inputState );
+static bool menuRXClock( uint16_t inputState );
+static bool menuUnmuteDelay( uint16_t inputState );
+static bool menuMuteDelay( uint16_t inputState );
+static bool menuTXDelay( uint16_t inputState );
+static bool menuTXClock( uint16_t inputState );
+static bool menuTXOut( uint16_t inputState );
+static bool menuXtalFreq( uint16_t inputState );
+static bool menuIntermediateFreq( uint16_t inputState );
+static bool menuKeyerMode( uint16_t inputState );
+
+#ifdef PSDR
+static bool menuSDR( uint16_t inputState );
+static bool menuIGain( uint16_t inputState );
+static bool menuQGain( uint16_t inputState );
+static bool menuIQGain( uint16_t inputState );
+static bool menuAdjustPhase( uint16_t inputState );
+static bool menuApplyGains( uint16_t inputState );
+static bool menuRoofing( uint16_t inputState );
+static bool menuHilbertFilter( uint16_t inputState );
+static bool menuMuteFactor( uint16_t inputState );
+static bool menuLeftADCVolume( uint16_t inputState );
+static bool menuRightADCVolume( uint16_t inputState );
+static bool menuIQPhasing( uint16_t inputState );
+#ifdef LCD_DISPLAY
+static bool menuFilter( uint16_t inputState );
+#endif
+#endif
+
+#ifdef LCD_DISPLAY
+static bool menuBacklight( uint16_t inputState );
+#endif
 
 #ifdef VARIABLE_SIDETONE_VOLUME
-static bool menuSidetoneVolume( bool bCW, bool bCCW, bool bShortPress, bool bLongPress, bool bShortPressLeft, bool bLongPressLeft, bool bShortPressRight, bool bLongPressRight );
+static bool menuSidetoneVolume( uint16_t inputState );
 #endif
 
 // Menu structure arrays
@@ -54,7 +113,7 @@ static bool menuSidetoneVolume( bool bCW, bool bCCW, bool bShortPress, bool bLon
 struct sMenuItem
 {
     char *text;
-    bool (*func)(bool, bool, bool, bool, bool, bool, bool, bool);
+    bool (*func)(uint16_t);
 };
 
 #define NUM_VFO_MENUS 3
@@ -64,6 +123,35 @@ static const struct sMenuItem vfoMenu[NUM_VFO_MENUS] =
     { "VFO Band",       menuVFOBand },
     { "VFO Mode",       menuVFOMode },
 };
+
+#ifdef PSDR
+#ifdef LCD_DISPLAY
+#define NUM_SDR_MENUS 14
+#else
+#define NUM_SDR_MENUS 13
+#endif
+static const struct sMenuItem sdrMenu[NUM_SDR_MENUS] =
+{
+    { "",               NULL },
+    { "SDR Mode",       menuSDR },
+#ifdef LCD_DISPLAY
+    { "Filter",         menuFilter },
+#endif
+    { "IQ Phasing",     menuIQPhasing },
+    { "Left ADC Vol",   menuLeftADCVolume },
+    { "Right ADC Vol",  menuRightADCVolume },
+    { "Roofing filter", menuRoofing },
+    { "Apply gains",    menuApplyGains },
+    { "Adjust phase",   menuAdjustPhase },
+    { "I Gain",         menuIGain },
+    { "Q Gain",         menuQGain },
+    { "IQ Gain",        menuIQGain },
+    { "Mute Factor",    menuMuteFactor },
+    { "Hilbert filter", menuHilbertFilter },
+};
+
+#define SDR_FILTER_MENU_ITEM 2
+#endif
 
 #define NUM_TEST_MENUS 10
 static const struct sMenuItem testMenu[NUM_TEST_MENUS] =
@@ -80,11 +168,21 @@ static const struct sMenuItem testMenu[NUM_TEST_MENUS] =
     { "TX Out",         menuTXOut },
 };
 
-#ifdef VARIABLE_SIDETONE_VOLUME
-#define NUM_CONFIG_MENUS 6
+// Work out how many items are in the config menu
+// Depends on the display type and whether variable sidetone
+#ifdef LCD_DISPLAY
+#define NUM_LCD_MENUS 1
 #else
-#define NUM_CONFIG_MENUS 5
+#define NUM_LCD_MENUS 0
 #endif
+
+#ifdef VARIABLE_SIDETONE_VOLUME
+#define NUM_SIDETONE_MENUS 1
+#else
+#define NUM_SIDETONE_MENUS 0
+#endif
+
+#define NUM_CONFIG_MENUS (4 + NUM_LCD_MENUS + NUM_SIDETONE_MENUS)
 
 static const struct sMenuItem configMenu[NUM_CONFIG_MENUS] =
 {
@@ -92,7 +190,9 @@ static const struct sMenuItem configMenu[NUM_CONFIG_MENUS] =
     { "Xtal Frequency", menuXtalFreq },
     { "IF Frequency",   menuIntermediateFreq },
     { "Keyer Mode",     menuKeyerMode },
+#ifdef LCD_DISPLAY
     { "Backlight",      menuBacklight },
+#endif    
 #ifdef VARIABLE_SIDETONE_VOLUME
     { "Sidetone vol",   menuSidetoneVolume },
 #endif
@@ -100,12 +200,16 @@ static const struct sMenuItem configMenu[NUM_CONFIG_MENUS] =
 
 enum eMenuTopLevel
 {
+#ifdef PSDR
+    SDR_MENU,
+#endif
     VFO_MENU,
     TEST_MENU,
     CONFIG_MENU,
     NUM_MENUS
 };
 
+// Top-level menu structure
 static const struct
 {
     char                    *text;
@@ -114,6 +218,9 @@ static const struct
 }
 menu[NUM_MENUS] =
 {
+#ifdef PSDR
+    { "SDR",    sdrMenu,    NUM_SDR_MENUS },
+#endif
     { "VFO",    vfoMenu,    NUM_VFO_MENUS },
     { "Test",   testMenu,   NUM_TEST_MENUS },
     { "Config", configMenu, NUM_CONFIG_MENUS },
@@ -131,7 +238,7 @@ static bool bEnteredMenuItem;
 
 // Set to true if entered the VFO menu quickly so that we
 // can leave quickly
-static bool bInQuickVFOMenu;
+static bool bInQuickMenuItem;
 
 // Text for the quick menu line
 // In split mode cannot enter RIT or XIT so show them in lower case
@@ -146,6 +253,8 @@ static bool bInQuickVFOMenu;
 struct sQuickMenuItem
 {
     uint8_t pos;    // Position on the line - needs to match the above text
+    uint8_t sx;     // Position on OLED line - will be calculated
+    uint8_t sWidth; // Width of the OLED item
     void (*func)(); // Function to call when item is selected
 };
 
@@ -156,13 +265,13 @@ static void quickMenuXIT();
 static void quickMenuSplit();
 
 #define NUM_QUICK_MENUS 5
-static const struct sQuickMenuItem quickMenu[NUM_QUICK_MENUS] =
+static struct sQuickMenuItem quickMenu[NUM_QUICK_MENUS] =
 {
-    { 0,  quickMenuSwap },
-    { 4,  quickMenuEqual },
-    { 8,  quickMenuRIT },
-    { 10, quickMenuXIT },
-    { 12, quickMenuSplit },
+    { 0,  0, 0, quickMenuSwap },
+    { 4,  0, 0, quickMenuEqual },
+    { 8,  0, 0, quickMenuRIT },
+    { 10, 0, 0, quickMenuXIT },
+    { 12, 0, 0, quickMenuSplit },
 };
 
 // Current quick menu item
@@ -178,12 +287,18 @@ static enum eCurrentMode
     modeQuickMenu,
 } currentMode = modeVFO;
 
+#ifdef LCD_DISPLAY
 // Backlight mode
 static enum eBacklightMode currentBacklightMode;
 
 // The last time the backlight went on in auto mode
 static uint32_t lastBacklightTime;
 
+#ifdef PSDR
+// The last time we changed the volume
+static uint32_t lastVolumeTime;
+#endif
+#endif
 #endif
 
 // Band frequencies
@@ -193,7 +308,7 @@ static uint32_t lastBacklightTime;
 #define NUM_BANDS 13
 #endif
 
-static const struct  
+static const struct
 {
     char     *bandName;     // Text for the menu
     uint32_t  minFreq;      // Min band frequency
@@ -231,9 +346,6 @@ band[NUM_BANDS] =
 #endif
 };
 
-// The 12m band has reversed CW mode
-#define BAND_12M 11
-
 // Current band - initialised from NVRAM
 static uint8_t currentBand;
 
@@ -244,7 +356,6 @@ static uint8_t currentRelay;
 // Is the VFO on the first or second frequency line?
 static bool bVFOFirstLine = true;
 
-
 // For the setting frequency (e.g. xtal or BFO) the current digit position that is changing
 static uint8_t settingFreqPos;
 
@@ -252,7 +363,7 @@ static uint8_t settingFreqPos;
 static bool bAskToSaveSettingFreq = false;
 
 #endif
-	
+
 // Set to true if break in is enabled
 static bool bBreakIn = true;
 
@@ -269,10 +380,29 @@ enum eVFOMode
 };
 
 #ifndef SOTA2
+
+// Display mode
+enum eDisplayMode
+{
+    displayStrength,
+    displayWpm,
+    displayVolume
+} displayMode;
+
+#define DEFAULT_DISPLAY_MODE displayWpm
+
+// The last display mode - used to correctly revert after volume displayed
+enum eDisplayMode lastDisplayMode;
+
 // The cursor position along with its corresponding frequency change
+// Also the screen pixel position for an OLED - these will be calculated
 struct sCursorPos
 {
-    uint8_t x, y;
+    uint8_t x, y;   // Position on LCD
+    uint8_t sx;     // x on OLED screen
+    uint8_t sy;     // y on OLED screen - full height digit
+    uint8_t shy;    // y on OLED screen - half height digit
+    uint8_t sWidth; // y on OLED screen - cursor width
     uint32_t freqChange;
 };
 
@@ -281,28 +411,46 @@ struct sCursorPos
 
 // The cursor transitions for the VFO
 #define NUM_CURSOR_TRANSITIONS 6
-static const struct sCursorPos vfoCursorTransition[NUM_CURSOR_TRANSITIONS] =
+static struct sCursorPos vfoCursorTransition[NUM_CURSOR_TRANSITIONS] =
 {
-    { 9, 1, 10 },
-    { 8, 1, 100 },
-    { 7, 1, 250 },
-    { 6, 1, 1000 },
-    { 5, 1, 10000 },
-    { CURSOR_TRANSITION_END, CURSOR_TRANSITION_END, CURSOR_TRANSITION_END }
+    { 5, 1, 0, 0, 0, 0, 10000 },
+    { 6, 1, 0, 0, 0, 0, 1000 },
+    { 7, 1, 0, 0, 0, 0, 250 },
+    { 8, 1, 0, 0, 0, 0, 100 },
+    { 9, 1, 0, 0, 0, 0, 10 },
+    { CURSOR_TRANSITION_END, CURSOR_TRANSITION_END, CURSOR_TRANSITION_END, CURSOR_TRANSITION_END, CURSOR_TRANSITION_END, CURSOR_TRANSITION_END, CURSOR_TRANSITION_END }
 };
 
-// Start the cursor on the 250Hz position
-#define DEFAULT_CURSOR_INDEX 2
+// Start the cursor on the dot (250Hz) position
+#define CURSOR_DOT 2
+#define DEFAULT_CURSOR_INDEX CURSOR_DOT
+#define FINEST_CURSOR_INDEX 4
 
 // Index for the current cursor position
+// and the previous index so when we leave RIT
+// goes back where it was
 static uint8_t cursorIndex = DEFAULT_CURSOR_INDEX;
+static uint8_t prevCursorIndex = DEFAULT_CURSOR_INDEX;
+
+#ifdef OLED_DISPLAY
+// Cursor position for WPM - initialised in screenInit()
+static int wpmCursorX, wpmCursorY, wpmCursorWidth;
+
+// Positions of screen objects
+static int wpmX, wpmY;
+static int menuX, menuY, menuWidth, menuCursorX, menuCursorY;
+static int volX, volY;
+static int preampX, preampY;
+static int filterX, filterY, filterWidth;
+static int modeX, modeY, modeWidth;
+#endif
 
 // In fast mode, if the dial is spun the rate speeds up
 #define VFO_SPEED_UP_DIFF  150  // If dial clicks are no more than this ms apart then speed up
 #define VFO_SPEED_UP_FACTOR 10  // Multiply the rate by this
 #endif
 
-static void rotaryVFO( bool bCW, bool bCCW, bool bShortPress, bool bLongPress, bool bShortPressLeft, bool bLongPressLeft, bool bShortPressRight, bool bLongPressRight );
+static void rotaryVFO( uint16_t inputState );
 
 // Maintain transmit and receive frequencies for two VFOs
 // The current VFO
@@ -318,7 +466,7 @@ static uint8_t currentVFO;
 static struct sVFOState 
 {
     uint32_t        freq;       // Frequency
-    int16_t         offset;     // Offset when in RIT or XIT
+    int32_t         offset;     // Offset when in RIT or XIT
     enum eVFOMode   mode;       // Simplex, RIT or XIT
 } vfoState[NUM_VFOS];
 
@@ -340,6 +488,14 @@ static bool bTXOutEnabled = true;
 // Set to true when sidetone enabled
 static bool bSidetone = true;
 
+#ifdef PSDR
+// Set to true when the preamp is on
+static bool bPreampOn = false;
+
+// Select normal, binaural or peaked output
+extern enum eOutput outputMode;
+#endif
+
 // Delay before muting and unmuting
 static uint8_t muteDelay = 5;
 static uint16_t unmuteDelay = 5;
@@ -351,16 +507,47 @@ static bool bTransmitting = false;
 // Intermediate frequency - 0 for direct conversion
 static uint32_t intermediateFrequency;
 
-#ifdef VARIABLE_SIDETONE_VOLUME
-// Volume of the sidetone - controlled via PWM duty cycle
-static uint8_t sidetoneVolume = DEFAULT_SIDETONE_PWM;
+// Whether IF is above or below
+extern bool ifBelow;
+
+#ifdef PSDR
+// Keep track of ADC and output overload
+extern bool adcOverload;
+static bool prevAdcOverload;
+extern int outOverload;
+static int prevOutOverload;
+
+#ifdef DISPLAY_AGC
+// Amplitude and gain as used by the AGC
+extern uint32_t agcAmplitude;
+static uint32_t prevAgcAmplitude;
+extern int agcGain;
+static int prevAgcGain;
 #endif
 
-#ifndef SOTA2
-static void update_display();
+// Maximum mute factor
+extern int maxMuteFactor;
+
+#ifdef DISPLAY_MIN_MAX
+extern int maxIn, maxOut, minIn, minOut;
+static int prevMaxIn, prevMaxOut, prevMinIn, prevMinOut;
 #endif
 
-// Works out the current RX frequency from the VFO settings
+// Volume knob controls volume when true else front end
+// sample shift.
+static bool bVolumeMode = true;
+
+// The front end input shift
+//extern int inputShift;
+#endif
+
+/**
+ * @brief Works out the current RX frequency from the VFO settings.
+ *
+ * This function returns the current RX (receive) frequency.
+ *
+ * @return The RX frequency as a 32-bit unsigned integer.
+ */
 static uint32_t getRXFreq()
 {
     uint32_t freq;
@@ -377,7 +564,13 @@ static uint32_t getRXFreq()
     return freq;
 }
 
-// Works out the current TX frequency from the VFO settings
+/**
+ * @brief Works out the current TX frequency from the VFO settings.
+ *
+ * This function returns the current TX (transmit) frequency.
+ *
+ * @return The TX frequency as a 32-bit unsigned integer.
+ */
 static uint32_t getTXFreq()
 {
     uint32_t freq;
@@ -406,7 +599,13 @@ static uint32_t getTXFreq()
     return freq;
 }
 
-// Returns true if the TX is enabled at the current transmit frequency
+/**
+ * @brief Checks if transmission is enabled at the current transmit frequency.
+ *
+ * This function determines whether the transmission is currently enabled.
+ *
+ * @return true if transmission is enabled, false otherwise.
+ */
 static bool txEnabled()
 {
     // Assume TX is not enabled
@@ -421,7 +620,15 @@ static bool txEnabled()
     return bEnabled;
 }
 
-// See if this is a new band and if so set the new band
+/**
+ * @brief Sets the band based on the given frequency.
+ *
+ * This function determines the band corresponding to the provided frequency
+ * and updates the current band and relay state accordingly. If the frequency
+ * is outside the current band limits, it searches for the appropriate band.
+ *
+ * @param freq The frequency to determine the band for.
+ */
 void setBandFromFrequency( uint32_t freq )
 {
     // Is the frequency outside the current band limits?
@@ -449,7 +656,11 @@ void setBandFromFrequency( uint32_t freq )
     }
 }
 
-// Sets the relay for the current frequency
+/**
+ * @brief Sets the relay for the current frequency.
+ *
+ * This function configures the relay based on the current frequency and relay state.
+ */
 static void setRelay()
 {
 #if NUM_RELAYS == 1
@@ -465,21 +676,35 @@ static void setRelay()
 #endif
 }
 
-// Enable/disable the RX clock outputs
+/**
+ * @brief Enables or disables the RX clock outputs.
+ *
+ * @param bEnable True to enable the RX clock outputs, false to disable them.
+ */
 static void enableRXClock( bool bEnable )
 {
     oscClockEnable( RX_CLOCK_A, bEnable );
     oscClockEnable( RX_CLOCK_B, bEnable );
 }
 
-// Enable/disable the TX clock output
+/**
+ * @brief Enables or disables the TX clock output.
+ *
+ * @param bEnable True to enable the TX clock output, false to disable it.
+ */
 static void enableTXClock( bool bEnable )
 {
     oscClockEnable( TX_CLOCK, bEnable );
 }
 
-// Turns on/off the TX clock and PA
-// If break-in off disables this
+/**
+ * @brief Controls the transmit state.
+ *
+ * This function turns on or off the TX clock and PA based on the transmit state.
+ * If break-in is disabled, it will not change the transmit state.
+ *
+ * @param bTX True to enable transmit, false to disable transmit.
+ */
 static void Transmit( bool bTX )
 {
     if( bBreakIn )
@@ -516,6 +741,13 @@ static void Transmit( bool bTX )
     }
 }
 
+/**
+ * @brief Mutes or unmutes the receiver.
+ *
+ * This function controls the RX enable line to mute or unmute the receiver.
+ *
+ * @param bMute True to mute the receiver, false to unmute.
+ */
 static void muteRX( bool bMute )
 {
     if( bMute )
@@ -528,6 +760,13 @@ static void muteRX( bool bMute )
     }
 }
 
+/**
+ * @brief Turns the sidetone on or off.
+ *
+ * This function enables or disables the sidetone based on the provided parameter.
+ *
+ * @param bOn True to turn on the sidetone, false to turn it off.
+ */
 static void sidetoneOn( bool bOn )
 {
     if( bSidetone )
@@ -543,7 +782,15 @@ static void sidetoneOn( bool bOn )
     }
 }
 
-// Handle key up and down - mute RX, transmit, sidetone etc.
+/**
+ * @brief Handles key down and key up events.
+ *
+ * This function manages the state changes when the key is pressed down or released.
+ * It handles muting the receiver, enabling/disabling the transmitter, and controlling
+ * the sidetone.
+ *
+ * @param bDown True if the key is pressed down, false if it is released.
+ */
 void keyDown( bool bDown )
 {
     if( bDown )
@@ -599,7 +846,14 @@ void keyDown( bool bDown )
     }
 }
 
-// Display the morse character if not in the menu
+/**
+ * @brief Displays the given Morse code text on the screen.
+ *
+ * This function displays the provided Morse code text on the screen
+ * if the current mode is not the menu mode.
+ *
+ * @param text The Morse code text to display.
+ */
 void displayMorse( char *text )
 {
 /*
@@ -610,26 +864,62 @@ void displayMorse( char *text )
 */
 }
 
-#ifdef SOTA2
+#ifdef OLED_DISPLAY
+/**
+ * @brief Draws the cursor on the OLED screen.
+ *
+ * This function draws the cursor at the specified position and width on the OLED screen.
+ * It also clears the previous cursor position before drawing the new one.
+ *
+ * @param x The x-coordinate of the cursor.
+ * @param y The y-coordinate of the cursor.
+ * @param width The width of the cursor.
+ */
+static void drawCursor( int x, int y, int width )
+{
+    static int prevX, prevY, prevWidth;
 
-// For the SOTA transceiver we have 3 LEDs instead of an LCD.
-// The default frequency is the centre frequency (e.g. 14060)
-// and we have left and right frequencies (e.g. 14050 and 14070)
-// Centre LED lit between the left and right frequencies
-// Left LED lit below the centre
-// Right LED lit above the centre
-// All LEDs light out of band
-static void update_display()
+    // Clear previous cursor
+    if( prevWidth > 0 )
+    {
+        oledDrawLine( prevX, prevY, prevX + prevWidth, prevY, false, true );
+    }
+
+    // Draw the new cursor
+    if( width > 0 )
+    {
+        oledDrawLine( x, y, x + width, y, true, true );
+    }
+
+    prevX = x;
+    prevY = y;
+    prevWidth = width;
+}
+#endif
+
+#ifdef SOTA2
+/**
+ * @brief Updates LEDs for the current frequency.
+ *
+ * For the SOTA transceiver we have 3 LEDs instead of an LCD.
+ * The default frequency is the centre frequency (e.g. 14060)
+ * and we have left and right frequencies (e.g. 14050 and 14070)
+ * Centre LED lit between the left and right frequencies
+ * Left LED lit below the centre
+ * Right LED lit above the centre
+ * All LEDs light out of band
+ */
+static void displayFrequencies( void )
 {
     uint32_t freq = getRXFreq();
 
     // Check we are in band
     if( (freq >= band[currentBand].minFreq) &&
-        (freq <= band[currentBand].maxFreq) )
+    (freq <= band[currentBand].maxFreq) )
     {
         // Centre LED is lit if between the left and right frequencies
         ioWriteCentreLED( (freq >= band[currentBand].leftFreq) &&
-                          (freq <= band[currentBand].rightFreq) );
+        (freq <= band[currentBand].rightFreq) );
 
         // Left LED is lit if below the centre frequency
         ioWriteLeftLED( freq < band[currentBand].defaultFreq);
@@ -647,12 +937,18 @@ static void update_display()
 }
 
 #else
-
-// Set the correct cursor for the VFO mode
-static void update_cursor()
+/**
+ * @brief Updates the cursor position based on the current mode and VFO state.
+ *
+ * This function updates the cursor position on the display based on the current
+ * mode (VFO, WPM, etc.) and VFO state (simplex, split, RIT, XIT).
+ */
+static void updateCursor()
 {
-    // Default to the top frequency line
     uint8_t line = FREQ_LINE;
+#ifdef OLED_DISPLAY
+    uint8_t y = vfoCursorTransition[cursorIndex].sy;
+#endif
 
     // Only update the cursor if in VFO mode
     if( currentMode == modeVFO )
@@ -660,40 +956,179 @@ static void update_cursor()
         // If split, RIT or XIT mode may need to put the cursor on the other line
         if( bVFOSplit || vfoState[currentVFO].mode != vfoSimplex )
         {
+#ifdef OLED_DISPLAY
+            y = vfoCursorTransition[cursorIndex].shy;
+#endif
             // Display the cursor on the correct line
             if( !bVFOFirstLine )
             {
                 line = FREQ_LINE + 1;
+#ifdef OLED_DISPLAY
+                y += getFontHeight(HALF_FREQUENCY_FONT);
+#endif                
             }
         }
 
+#ifdef LCD_DISPLAY
         displayCursor( vfoCursorTransition[cursorIndex].x, line, cursorUnderline );
-    }
-}
-
-// Reads the CW reverse mode from NVRAM and makes any necessary changes
-static bool getCWReverse()
-{
-    bool bCWReverse = nvramReadCWReverse();
-
-#ifdef SOTA7
-    // 12m band has CW reverse swapped
-    if( currentBand == BAND_12M )
-    {
-        bCWReverse = !bCWReverse;
-    }
 #endif
 
-    return bCWReverse;
+#ifdef OLED_DISPLAY
+        drawCursor( vfoCursorTransition[cursorIndex].sx, y, vfoCursorTransition[cursorIndex].sWidth );
+#endif        
+    }
+    else if( currentMode == modeWpm )
+    {
+#ifdef LCD_DISPLAY
+        // Make the cursor blink on the wpm
+        displayCursor( WPM_COL, WPM_LINE, cursorBlink );
+#endif
+
+#ifdef OLED_DISPLAY
+        // Draw it on the OLED, but it won't blink
+        drawCursor( wpmCursorX, wpmCursorY, wpmCursorWidth );
+#endif
+    }
 }
 
-
-// Update the display with the frequency and morse wpm
-static void update_display()
+/**
+ * @brief Displays the given menu text on the screen.
+ *
+ * This function displays the provided menu text on the screen.
+ *
+ * @param text The menu text to display.
+ */
+void displayMenu( const char *text )
 {
-    char wpmText[TEXT_BUF_LEN];
+#ifdef LCD_DISPLAY
+    displayText( MENU_LINE, text, true );
+#endif
+
+#ifdef OLED_DISPLAY
+    // Clear previous menu line before writing new line
+    oledDrawRectangle( menuX, menuY, menuWidth, getFontHeight( MENU_FONT ), false, false );
+    oledWriteString( menuX, menuY, text, MENU_FONT, true );
+#endif
+}
+
+#ifdef OLED_DISPLAY
+/**
+ * @brief Displays the frequency on the OLED screen.
+ *
+ * This function displays the given frequency on the specified line of the OLED screen.
+ * It uses different fonts and positions for the frequency components.
+ *
+ * @param line The line number on the OLED screen where the frequency will be displayed.
+ * @param cA The first character to display (e.g., VFO letter).
+ * @param cB The second character to display (e.g., mode indicator).
+ * @param freq The frequency to display.
+ * @param bigFont True to use the big font, false to use the half-height font.
+ */
+static void displayFrequencyOLED( int line, char cA, char cB, uint32_t freq, bool bigFont )
+{
     char freqText[TEXT_BUF_LEN*2];
-    
+    int font = bigFont ? FREQUENCY_FONT : HALF_FREQUENCY_FONT;
+    int x = 0;
+    int y = 0;
+    char *format = "%5lu";
+    int firstDigitPosition = x + getFontWidth(SMALL_FONT);
+    int dotX = firstDigitPosition + 5*getFontWidth(font);
+    int dotY =  y + getFontHeight( SMALL_FONT );
+
+    if( line == 1 )
+    {
+        y = getFontHeight( HALF_FREQUENCY_FONT );
+        dotY = y + getFontHeight( SMALL_FONT );
+
+        // Clear line first
+        oledDrawRectangle( x, y, OLED_WIDTH, getFontHeight( HALF_FREQUENCY_FONT ), false, false );
+    }
+    else if( bigFont )
+    {
+        y = 0;
+        dotY = y + 3*getFontHeight(SMALL_FONT);
+
+        // Clear line first
+        oledDrawRectangle( x, y, OLED_WIDTH, getFontHeight( FREQUENCY_FONT ), false, false );
+    }
+
+    sprintf( freqText, "%c", cA );
+    oledWriteString(x, y, freqText, SMALL_FONT, false);
+
+    sprintf( freqText, "%c", cB );
+    oledWriteString(x, y + getFontHeight(SMALL_FONT), freqText, SMALL_FONT, false);
+
+    sprintf( freqText, format, freq/1000);
+
+    oledWriteString(firstDigitPosition, y, freqText, font, false);
+
+    oledWriteString (dotX, dotY, ".", SMALL_FONT, false );
+
+    int decimalDigitPosition = dotX + getFontWidth(SMALL_FONT);
+    sprintf( freqText, "%02lu", (freq%1000)/10);
+    oledWriteString(decimalDigitPosition, y, freqText, font, true);
+}
+#endif
+
+// Keep the wpm, volume and frequency texts so we can display one along with
+// the other when updating
+static char wpmText[TEXT_BUF_LEN];
+static char freqText[TEXT_BUF_LEN];
+static char volText[TEXT_BUF_LEN];
+
+#ifdef LCD_DISPLAY
+/**
+ * @brief Displays the frequency on the LCD screen.
+ *
+ * This function updates the LCD screen with the current frequency and other relevant information.
+ */
+static void displayFrequencyLCD( void )
+{
+    char buf[TEXT_BUF_LEN];
+
+    if( displayMode == displayVolume )
+    {
+        sprintf( buf, "%s %s", freqText, volText );
+    }
+    else
+    {
+        sprintf( buf, "%s %s", freqText, wpmText );
+    }
+    displayText( FREQ_LINE, buf, true );
+}
+#endif
+
+/**
+ * @brief Checks if the current mode is CW reverse or LSB.
+ *
+ * This function determines whether the current mode is either CW reverse or LSB.
+ *
+ * @return true if the current mode is CW reverse or LSB, false otherwise.
+ */
+static bool getCWReverse( void )
+{
+    switch( nvramReadTRXMode() )
+    {
+        case cwRevMode:
+        case lsbMode:
+            return true;
+            
+        default:
+            return false;
+    }
+}
+
+/**
+ * @brief Displays the current frequencies on the screen.
+ *
+ * This function updates the display with the current RX and TX frequencies.
+ * It handles different modes such as split, RIT, and XIT, and updates the
+ * display accordingly.
+ * Normally displays one frequency on the top line but in
+ * split or RIT/XIT modes uses two lines
+ */
+static void displayFrequencies( void )
+{
     // Frequency for the first and second lines
     uint32_t freq1 = 0;
     uint32_t freq2 = 0;
@@ -708,28 +1143,6 @@ static void update_display()
     // Changes to 'x' if TX not enabled for the current
     // TX frequency
     char cDot = txEnabled() ? '.' : 'x';
-        
-    // Get the current wpm.
-    uint8_t wpm = morseGetWpm();
-
-    // Create the text for the morse speed
-    if( wpm > 0 )
-    {
-        sprintf( wpmText, "%2dwpm", wpm);
-    }
-    else
-    {
-        // A morse wpm of 0 means straight key mode
-        // May be in tune mode (continuous transmit until dot pressed)
-        if( morseInTuneMode() )
-        {
-            sprintf( wpmText, "Tune " );
-        }
-        else
-        {
-            sprintf( wpmText, "SKey " );
-        }
-    }
 
     // First line begins with a letter to tell us which VFO (A or B) or
     // if the oscillator is not OK (N)
@@ -776,71 +1189,353 @@ static void update_display()
         }
     }
 
+#ifdef LCD_DISPLAY
     // Display if we are in CW reverse mode
     if( getCWReverse() )
     {
         cLine1B = '^';
     }
-    
+#endif
+
     // Line 1 has the RX frequency
     freq1 = getRXFreq();
 
-    // Line 1 has the frequency as determined above plus the morse WPM
-    sprintf( freqText, "%c%c%5lu%c%02lu %s", cLine1A, cLine1B, freq1/1000, cDot, (freq1%1000)/10, wpmText);
-    displayText( FREQ_LINE, freqText, true );
-    
+#ifdef OLED_DISPLAY
+    bool bigFont = true;
+#endif
+
     // All modes other than simplex have a second line
     if( bVFOSplit || (vfoState[currentVFO].mode != vfoSimplex) )
     {
-        displaySplitLine( 0, FREQ_LINE + 1 );
         sprintf( freqText, "%c%c%5lu%c%02lu", cLine2A, cLine2B, freq2/1000, cDot, (freq2%1000)/10);
-        displayText( FREQ_LINE + 1, freqText, true );
 
+#ifdef LCD_DISPLAY
+        displaySplitLine( 0, FREQ_LINE + 1 );
+        displayText( FREQ_LINE + 1, freqText, true );
+#endif
+
+#ifdef OLED_DISPLAY
+        bigFont = false;
+
+        // Display on the OLED
+        displayFrequencyOLED( FREQ_LINE + 1, cLine2A, cLine2B, freq2, bigFont );
+#endif
+
+#ifdef LCD_DISPLAY
         // Second line is split so frequency not overwritten if we are displaying morse
         displaySplitLine( 10, FREQ_LINE + 1 );
+#endif
     }
     else
     {
         // Second line is not split and needs to be cleared if not in the menu or quick menu
         if( (currentMode != modeQuickMenu) && (currentMode != modeMenu) )
         {
+#ifdef LCD_DISPLAY
             displaySplitLine( 0, FREQ_LINE + 1 );
-            displayText( FREQ_LINE + 1, "", true );
+#endif
+            displayMenu( "" );
         }
     }
+
+    // Line 1 has the frequency as determined above
+    sprintf( freqText, "%c%c%5lu%c%02lu", cLine1A, cLine1B, freq1/1000, cDot, (freq1%1000)/10);
+
+#ifdef LCD_DISPLAY
+    // Display on the LCD
+    displayFrequencyLCD();
+#endif
+
+#ifdef OLED_DISPLAY
+    // Display on the OLED
+    displayFrequencyOLED( FREQ_LINE, cLine1A, cLine1B, freq1, bigFont );
+#endif
 }
-#endif
 
-// Set the RX frequency
-static void setRXFrequency( uint32_t freq )
+/**
+ * @brief Displays the current Morse code speed (WPM) on the screen.
+ *
+ * This function updates the display with the current Morse code speed (words per minute).
+ * If the speed is 0, it indicates straight key mode or tune mode.
+ */
+static void displayMorseWpm( void )
 {
-    // The RX oscillator has to be offset for the CW tone to be audible
-    // Decide if we are using CW normal or reverse
-#ifdef SOTA2
-    bool bCWReverse = false;
-#else
-    bool bCWReverse = getCWReverse();
-#endif
+    int wpm = morseGetWpm();
 
-    uint32_t oscFreq;
-
-    if( bCWReverse )
+    // Create the text for the morse speed
+    if( wpm > 0 )
     {
-        // Reverse mode is LSB so need the LO above the RX frequency
-        oscFreq = freq + RX_OFFSET;
+        sprintf( wpmText, "%2dwpm", wpm);
     }
     else
     {
-        // Normal mode is USB so need the LO below the RX frequency
-        oscFreq = freq - RX_OFFSET;
+        // A morse wpm of 0 means straight key mode
+        // May be in tune mode (continuous transmit until dot pressed)
+        if( morseInTuneMode() )
+        {
+            sprintf( wpmText, "Tune " );
+        }
+        else
+        {
+            sprintf( wpmText, "SKey " );
+        }
     }
+
+#ifdef LCD_DISPLAY
+    // Display on the LCD
+    displayFrequencyLCD();
+#endif
+
+#ifdef OLED_DISPLAY
+    // Display on the OLED
+    oledWriteString( wpmX, wpmY, wpmText, WPM_FONT, true);
+#endif
+}
+
+#ifdef PSDR
+/**
+ * @brief Displays the current volume and input boost gain on the screen.
+ *
+ * This function updates the display with the current volume and input boost gain.
+ * It handles both OLED and LCD displays.
+ */
+static void displayVol( void )
+{
+//    sprintf( volText, "%c:%d%c%02d", ifBelow ? '-' : '+', inputShift, bVolumeMode ? '>' : '<', ioGetVolume());
+    sprintf( volText, "%c:%d%c%02d", ifBelow ? '-' : '+', WM8960GetInputBoostGain(), bVolumeMode ? '>' : '<', ioGetVolume());
+
+#ifdef OLED_DISPLAY
+    // Display on the OLED
+    oledWriteString( volX, volY, volText, VOLUME_FONT, true);
+#endif
+
+#ifdef LCD_DISPLAY
+    // Display on the LCD
+    displayFrequencyLCD();
+#endif
+}
+
+#ifdef DISPLAY_AGC
+/**
+ * @brief Displays the Automatic Gain Control (AGC) information.
+ *
+ * This function is responsible for displaying the AGC information.
+ * It retrieves and processes the necessary data to provide a visual
+ * representation of the AGC status.
+ */
+static void displayAgc( void )
+{
+#ifdef OLED_DISPLAY
+    char buf[TEXT_BUF_LEN];
+    sprintf( buf, "%6u %6d", agcAmplitude / AGC_BUFFER_LEN / AGC_BUFFER_LEN, agcGain );
+
+    // Display on the OLED
+    oledWriteString( menuX, menuY, buf, MENU_FONT, true);
+#endif
+}
+#endif
+
+/**
+ * @brief Displays the preamp status on the screen.
+ *
+ * This function updates the display with the current status of the preamp,
+ * ADC overload, and output overload. It handles both OLED and LCD displays.
+ */
+static void displayPreamp( void )
+{
+    char buf[TEXT_BUF_LEN];
+    char preampChar, adcChar, outChar;
+
+    if( bPreampOn )
+    {
+        preampChar = 'P';
+    }
+    else
+    {
+        preampChar = 'p';
+    }
+
+    if( adcOverload )
+    {
+        adcChar = 'A';
+    }
+    else
+    {
+        adcChar = 'a';
+    }
+
+    if( outOverload == 1)
+    {
+        outChar = '+';
+    }
+    else if( outOverload == -1)
+    {
+        outChar = '-';
+    }
+    else
+    {
+        outChar = '0';
+    }
+
+    sprintf( buf, "%c%c%c", preampChar, adcChar, outChar );
+
+#ifdef OLED_DISPLAY
+    // Display on the OLED
+    oledWriteString( preampX, preampY, buf, PREAMP_FONT, true);
+
+#ifdef DISPLAY_MIN_MAX
+    sprintf(buf, "%04x %04x %04x", minIn, maxIn, maxOut );
+    oledWriteString( menuX, menuY, buf, WPM_FONT, true);
+#endif
+#endif
+}
+#endif
+
+#ifdef OLED_DISPLAY
+
+#if 0
+static char *getModeText( void )
+{
+    switch( nvramReadTRXMode() )
+    {
+        case cwMode:
+            return "CW";
+
+        case cwRevMode:
+            return "CWR";
+
+        case lsbMode:
+            return "LSB";
+
+        case usbMode:
+            return "USB";
+
+        default:
+            return "???";
+    }
+}
+
+static void displayTRXMode( void )
+{
+    // Clear previous mode text before writing new text
+    oledDrawRectangle( modeX, modeY, modeWidth, getFontHeight( MODE_FONT ), false, false );
+    oledWriteString (modeX, modeY, getModeText(), MODE_FONT, true );
+}
+#else
+/**
+ * @brief Displays the current output mode on the OLED screen.
+ *
+ * This function updates the display with the current output mode,
+ * which can be normal, binaural, or peaked.
+ */
+static void displayOutputMode( void )
+{
+    char *output;
+
+    // Clear previous mode text before writing new text
+    oledDrawRectangle( modeX, modeY, modeWidth, getFontHeight( MODE_FONT ), false, false );
+
+    switch( outputMode )
+    {
+        case NORMAL_OUTPUT:
+            output = "CW ";
+            break;
+
+        case BINAURAL_OUTPUT:
+            output = "CWB";
+            break;
+
+        case PEAKED_OUTPUT:
+            output = "CWP";
+            break;
+
+        default:
+            output = "CW?";
+            break;
+    }
+    oledWriteString (modeX, modeY, output, MODE_FONT, true );
+}
+#endif
+
+/**
+ * @brief Displays the current filter setting on the OLED screen.
+ *
+ * This function updates the display with the current filter setting.
+ */
+static void displayFilter( void )
+{
+    // Clear previous filter text before writing new text
+    oledDrawRectangle( filterX, filterY, filterWidth, getFontHeight( FILTER_FONT ), false, false );
+    oledWriteString( filterX, filterY, ioGetFilterText(), FILTER_FONT, true );
+}
+#endif
+#endif
+
+/**
+ * @brief Sets the RX frequency.
+ *
+ * This function configures the RX frequency based on the current mode (CW, CW reverse, LSB, USB)
+ * and the intermediate frequency. It also sets the appropriate quadrature phase shift and relay state.
+ *
+ * @param freq The frequency to set for RX.
+ */
+static void setRXFrequency( uint32_t freq )
+{
+    // For CW the RX oscillator has to be offset for the CW tone to be audible
+    // but not for SSB. Also need to set the correct quadrature for either
+    // sideband.
+    int offset = 0;
+    int q = 0;
+
+#ifdef SOTA2
+    offset = -RX_OFFSET;
+    q = -1;
+#else
+    switch( nvramReadTRXMode() )
+    {
+        default:
+        case cwMode:
+            // Normal mode is USB so need the LO below the RX frequency
+            offset = -RX_OFFSET;
+            q = -1;
+            break;
+
+        case cwRevMode:
+            // Reverse mode is LSB so need the LO above the RX frequency
+            offset = RX_OFFSET;
+            q = 1;
+            break;
+
+        case lsbMode:
+            q = 1;
+            break;
+
+        case usbMode:
+            q = -1;
+            break;
+    }
+#endif
+
+#ifdef PSDR
+    if( ifBelow )
+    {
+        freq -= INTERMEDIATE_FREQUENCY;
+    }
+    else
+    {
+        freq += INTERMEDIATE_FREQUENCY;
+    }
+
+    oscSetFrequency( RX_CLOCK_A, freq, 0 );
+    oscSetFrequency( RX_CLOCK_B, freq, q );
+#else
 
     // Set the oscillator frequency.
     if( intermediateFrequency == 0 )
     {
         // Direct conversion so set the correct quadrature phase shift.
-        oscSetFrequency( RX_CLOCK_A, oscFreq, 0 );
-        oscSetFrequency( RX_CLOCK_B, oscFreq, bCWReverse ? 1 : -1 );
+        oscSetFrequency( RX_CLOCK_A, freq + offset, 0 );
+        oscSetFrequency( RX_CLOCK_B, freq + offset, q );
     }
     else
     {
@@ -848,12 +1543,18 @@ static void setRXFrequency( uint32_t freq )
         oscSetFrequency( RX_CLOCK_A, freq + intermediateFrequency, 0 );
         oscSetFrequency( RX_CLOCK_B, intermediateFrequency - RX_OFFSET, 0 );
     }
+#endif
 
     // Set the relay
     setRelay();
 }
 
-// Set the TX and RX frequencies
+/**
+ * @brief Sets the RX and TX frequencies based on the current VFO settings.
+ *
+ * This function updates the RX and TX frequencies according to the current VFO settings.
+ * It also updates the display and cursor to reflect the new frequencies.
+ */
 static void setFrequencies()
 {
     // See if this is a new band and if so set the new band
@@ -864,13 +1565,39 @@ static void setFrequencies()
     oscSetFrequency( TX_CLOCK, getTXFreq(), 0 );
 
     // Ensure the display and cursor reflect this
-    update_display();
+    displayFrequencies();
 #ifndef SOTA2
-    update_cursor();
+    updateCursor();
 #endif
 }
 
-// Set the band - sets the frequencies and memories to the new band's default
+#ifndef SOTA2
+// Turn off the cursor
+/**
+ * @brief Turns off the cursor on the display.
+ *
+ * This function disables the cursor on both LCD and OLED displays.
+ */
+static void turnCursorOff( void )
+{
+#ifdef LCD_DISPLAY
+    displayCursor( 0, 0, cursorOff );
+#endif
+
+#ifdef OLED_DISPLAY
+    drawCursor( 0, 0, 0 );
+#endif
+}
+#endif
+
+/**
+ * @brief Sets the band to the specified new band.
+ *
+ * This function updates the VFO states, split mode, and frequencies
+ * to match the specified new band. It also stores the new band in NVRAM.
+ *
+ * @param newBand The new band to set.
+ */
 static void setBand( int newBand )
 {
     // Set the default frequency for both VFOs
@@ -890,14 +1617,21 @@ static void setBand( int newBand )
 }
 
 #ifndef SOTA2
-// Display the menu text for the current menu or sub menu
+/**
+ * @brief Displays the current menu or sub-menu text on the screen.
+ *
+ * This function updates the display with the current menu or sub-menu text.
+ * It also turns off the cursor after displaying the text.
+ */
 static void menuDisplayText()
 {
     char text[TEXT_BUF_LEN];
 
+#ifdef LCD_DISPLAY
     // Turn off the split line for the menu
     displaySplitLine( 0, MENU_LINE );
-    
+#endif
+
     // Display either the menu or the sub-menu text
     if( currentSubMenu == 0 )
     {
@@ -910,72 +1644,133 @@ static void menuDisplayText()
         sprintf( text, "%c.%d %s", 'A' + currentMenu, currentSubMenu, menu[currentMenu].subMenu[currentSubMenu].text );
     }
     
-    displayText( MENU_LINE, text, true );
-    
-    // Turn off the cursor
-    displayCursor( 0, 0, cursorOff );
+    displayMenu( text );
+
+    turnCursorOff();    
 }
 
-// Enter the wpm setting mode
+/**
+ * @brief Enter the WPM (Words Per Minute) setting mode.
+ *
+ * This function switches the current mode to WPM setting mode,
+ * updates the display mode to show WPM, and displays the current
+ * Morse code speed (WPM) on the screen. It also updates the cursor
+ * position to reflect the new mode.
+ */
 static void enterWpm()
 {
-    // Make the cursor blink on the wpm
-    displayCursor( WPM_COL, WPM_LINE, cursorBlink );
-
     currentMode = modeWpm;
+    displayMode = displayWpm;
+
+    displayMorseWpm();
+    updateCursor();
 }
 
-// Enter the menu
+/**
+ * @brief Enter the menu mode.
+ *
+ * This function switches the current mode to menu mode,
+ * initialises the menu state, and displays the top-level menu.
+ */
 static void enterMenu()
 {
     // In the menu but not yet in a menu item
     currentMenu = currentSubMenu = 0;
     currentMode = modeMenu;
     bInMenuItem = false;
+    displayMode = DEFAULT_DISPLAY_MODE;
 
     // Display the current menu text
     menuDisplayText();
 }
 
-// Quick way to the VFO menu
+/**
+ * @brief Quick way to enter the VFO band menu.
+ *
+ * This function sets the current menu to the VFO menu and the current sub-menu
+ * to the VFO band menu item. It also sets the mode to menu mode and indicates
+ * that we are in a quick menu item. The VFO band menu is then displayed.
+ */
 static void enterVFOBandMenu()
 {
     currentMenu = VFO_MENU;
     currentSubMenu = 1;
     currentMode = modeMenu;
     bInMenuItem = true;
+    displayMode = DEFAULT_DISPLAY_MODE;
 
     // We are entering the menu quickly so we can get out quickly
-    bInQuickVFOMenu = true;
+    bInQuickMenuItem = true;
 
     // Display the current menu text
-    menuVFOBand(false, false, false, false, false, false, false, false);
+    menuVFOBand(0);
 
-    // Turn off the cursor
-    displayCursor( 0, 0, cursorOff );
+    turnCursorOff();    
 }
 
-// Go back to VFO mode
+#ifdef PSDR
+#ifdef LCD_DISPLAY
+/**
+ * @brief Quick way to the filter menu.
+ *
+ * This function sets the current menu to the SDR menu and the current sub-menu
+ * to the filter menu item. It also sets the mode to menu mode and indicates
+ * that we are in a quick menu item. The filter menu is then displayed.
+ */
+static void enterSDRFilterMenu()
+{
+    currentMenu = SDR_MENU;
+    currentSubMenu = SDR_FILTER_MENU_ITEM;
+    currentMode = modeMenu;
+    bInMenuItem = true;
+    displayMode = DEFAULT_DISPLAY_MODE;
+
+    // We are entering the menu quickly so we can get out quickly
+    bInQuickMenuItem = true;
+
+    // Display the current menu text
+    menuFilter(0);
+
+    turnCursorOff();    
+}
+#endif
+#endif
+
+/**
+ * @brief Enter the VFO (Variable Frequency Oscillator) mode.
+ *
+ * This function switches the current mode to VFO mode, updates the display mode,
+ * and ensures the cursor and display reflect the current VFO state.
+ */
 static void enterVFOMode()
 {
     // Go to VFO mode
     currentMode = modeVFO;
+    displayMode = DEFAULT_DISPLAY_MODE;
 
     // Next time we enter the menu start not in a menu item
     bEnteredMenuItem = false;
 
     // Display the cursor in the right place
-    update_cursor();
+    updateCursor();
 
     // Clear the second line as no longer in the menu
+#ifdef LCD_DISPLAY
     displaySplitLine( 0, FREQ_LINE + 1 );
-    displayText( FREQ_LINE+1, "", true);
+#endif    
+    displayMenu( "" );
 
     // Update the display with the correct split for the current VFO mode
-    update_display();
+    displayFrequencies();
 }
 
-// Swap the VFOs - called either from the quick menu or CAT control
+/**
+ * @brief Swaps the VFOs.
+ *
+ * This function swaps the current VFO with the other VFO and updates
+ * the frequencies and display accordingly.
+ * Called either from the quick menu or CAT control.
+ */
 void vfoSwap()
 {
     // Swap the VFOs
@@ -983,15 +1778,25 @@ void vfoSwap()
 
     // Update the frequencies and display
     setFrequencies();
-    update_display();
 }
 
+/**
+ * @brief Quick menu item Swap VFOs.
+ *
+ * This function swaps the VFOs and updates the frequencies and display accordingly.
+ */
 static void quickMenuSwap()
 {
     vfoSwap();
 }
 
-// Set the other VFO to the current VFO - called either from the quick menu or CAT control
+/**
+ * @brief Sets the other VFO to the current VFO.
+ *
+ * This function copies the state of the current VFO to the other VFO.
+ * If in split mode, it ensures the transmit frequency is updated.
+ * Called either from the quick menu or CAT control.
+*/
 void vfoEqual()
 {
     vfoState[OTHER_VFO] = vfoState[currentVFO];
@@ -1003,13 +1808,27 @@ void vfoEqual()
     }
 }
 
-// Set the other VFO to the current VFO
+/**
+ * @brief Quick menu item Equal VFOs.
+ *
+ * This function sets the other VFO to the current VFO and updates the frequencies and display accordingly.
+ */
 static void quickMenuEqual()
 {
     vfoEqual();
 }
 
-// Set RIT on or off - called from quick menu or CAT control
+/**
+ * @brief Sets the RIT (Receiver Incremental Tuning) mode for the current VFO.
+ *
+ * This function enables or disables the RIT mode for the current VFO.
+ * When RIT is enabled, the offset is set to zero and the cursor is moved
+ * to the finest frequency control position. When RIT is disabled, the
+ * VFO mode is set to simplex and the cursor is restored to its previous position.
+ * Called either from the quick menu or CAT control.
+ *
+ * @param bRIT True to enable RIT mode, false to disable it.
+ */
 void setCurrentVFORIT( bool bRIT )
 {
     // Ignore if in split mode
@@ -1021,25 +1840,38 @@ void setCurrentVFORIT( bool bRIT )
 
             // Always on the second line in RIT mode
             bVFOFirstLine = false;
-            
+
             // Start with no offset
             setCurrentVFOOffset( 0 );
-            
+
+            // Remember the current cursor index so when we come out of RIT
+            // it goes back where it was
+            prevCursorIndex = cursorIndex;
+
             // In RIT mode want the finest frequency control by default
-            cursorIndex = 0;
+            cursorIndex = FINEST_CURSOR_INDEX;
         }
         else
         {
             vfoState[currentVFO].mode = vfoSimplex;
+
+            // Put the cursor back where it was
+            cursorIndex = prevCursorIndex;
         }
 
         // Update the frequencies and display
         setFrequencies();
-        update_cursor();
+        updateCursor();
     }
 }
 
-// Quick menu item RIT selected
+/**
+ * @brief Quick menu item RIT selected.
+ *
+ * This function toggles the RIT mode for the current VFO.
+ * If the current VFO is in RIT mode, it switches back to simplex mode.
+ * If the current VFO is in simplex or XIT mode, it switches to RIT mode.
+ */
 static void quickMenuRIT()
 {
     switch( vfoState[currentVFO].mode )
@@ -1059,7 +1891,17 @@ static void quickMenuRIT()
     enterVFOMode();
 }
 
-// Set XIT on or off - called from quick menu or CAT control
+/**
+ * @brief Sets the XIT (Transmit Incremental Tuning) mode for the current VFO.
+ *
+ * This function enables or disables the XIT mode for the current VFO.
+ * When XIT is enabled, the offset is set to zero and the cursor is moved
+ * to the finest frequency control position. When XIT is disabled, the
+ * VFO mode is set to simplex and the cursor is restored to its previous position.
+ * Called either from the quick menu or CAT control.
+ *
+ * @param bXIT True to enable XIT mode, false to disable it.
+ */
 void setCurrentVFOXIT( bool bXIT )
 {
     // Ignore if in split mode
@@ -1071,19 +1913,38 @@ void setCurrentVFOXIT( bool bXIT )
 
             // Always on the second line in XIT mode
             bVFOFirstLine = false;
+
+            // Start with no offset
+            setCurrentVFOOffset( 0 );
+
+            // Remember the current cursor index so when we come out of RIT
+            // it goes back where it was
+            prevCursorIndex = cursorIndex;
+
+            // In RIT mode want the finest frequency control by default
+            cursorIndex = FINEST_CURSOR_INDEX;
         }
         else
         {
             vfoState[currentVFO].mode = vfoSimplex;
+
+            // Put the cursor back where it was
+            cursorIndex = prevCursorIndex;
         }
 
         // Update the frequencies and display
         setFrequencies();
-        update_cursor();
+        updateCursor();
     }
 }
 
-// Quick menu item XIT selected
+/**
+ * @brief Quick menu item XIT selected.
+ *
+ * This function toggles the XIT mode for the current VFO.
+ * If the current VFO is in XIT mode, it switches back to simplex mode.
+ * If the current VFO is in simplex or RIT mode, it switches to XIT mode.
+ */
 static void quickMenuXIT()
 {
     switch( vfoState[currentVFO].mode )
@@ -1104,7 +1965,15 @@ static void quickMenuXIT()
     enterVFOMode();
 }
 
-// Set the VFO split state - for CAT control or the quick menu
+/**
+ * @brief Sets the VFO split state.
+ *
+ * This function enables or disables the VFO split mode. When split mode is enabled,
+ * the transmit and receive frequencies are set to different VFOs. When split mode
+ * is disabled, the VFOs are set to simplex mode.
+ *
+ * @param bSplit True to enable split mode, false to disable it.
+ */
 void setVFOSplit( bool bSplit )
 {
     // Ignore if no change
@@ -1137,7 +2006,13 @@ void setVFOSplit( bool bSplit )
     }
 }
 
-// Quick menu item Split selected
+/**
+ * @brief Quick menu item Split selected.
+ *
+ * This function toggles the split mode for the VFOs.
+ * If the VFOs are in split mode, it switches back to simplex mode.
+ * If the VFOs are in simplex mode, it switches to split mode.
+ */
 static void quickMenuSplit()
 {
     // Toggle split state
@@ -1145,31 +2020,60 @@ static void quickMenuSplit()
     enterVFOMode();
 }
 
-// Display the quick menu text
+/**
+ * @brief Displays the quick menu text on the screen.
+ *
+ * This function updates the display with the current quick menu text.
+ * It also positions the cursor on the current quick menu item.
+ */
 static void quickMenuDisplayText()
 {
+#ifdef LCD_DISPLAY
     // Turn off the split line for the menu
     displaySplitLine( 0, MENU_LINE );
+#endif
 
     // Display the quick menu
     // Slightly different text in split mode
-    displayText( MENU_LINE, (bVFOSplit ? QUICK_MENU_SPLIT_TEXT : QUICK_MENU_TEXT), true );
+    displayMenu( (bVFOSplit ? QUICK_MENU_SPLIT_TEXT : QUICK_MENU_TEXT) );
     
+#ifdef LCD_DISPLAY
     // Make the cursor blink on the current item
     displayCursor( quickMenu[quickMenuItem].pos, MENU_LINE, cursorBlink );
+#endif
+
+#ifdef OLED_DISPLAY
+    // Display the cursor on the OLED item
+    drawCursor( quickMenu[quickMenuItem].sx, menuCursorY, quickMenu[quickMenuItem].sWidth );
+#endif
 }
 
-// Enter the quick menu
+/**
+ * @brief Enters the quick menu.
+ *
+ * This function is responsible for transitioning the application
+ * into the quick menu mode. It performs necessary setup and 
+ * initialisation required for the quick menu to function properly.
+ */
 static void enterQuickMenu()
 {
     currentMode = modeQuickMenu;
+    displayMode = DEFAULT_DISPLAY_MODE;
 
     // Display the current menu text
     quickMenuDisplayText();
 }
 
-// Handle the rotary control while in the menu
-static void rotaryMenu( bool bCW, bool bCCW, bool bShortPress, bool bLongPress, bool bShortPressLeft, bool bLongPressLeft, bool bShortPressRight, bool bLongPressRight )
+/**
+ * @brief Handles the rotary control while in the menu mode.
+ *
+ * This function processes the rotary control and button presses
+ * when the system is in menu mode. It navigates through the menu
+ * items and sub-menu items, and handles entering and exiting menu items.
+ *
+ * @param inputState The current state of the rotary control and buttons.
+ */
+static void rotaryMenu( uint16_t inputState )
 {
     // If in a menu item then pass control to its function
     if( bInMenuItem )
@@ -1177,7 +2081,7 @@ static void rotaryMenu( bool bCW, bool bCCW, bool bShortPress, bool bLongPress, 
         // We'll let the menu function have first go at dealing with
         // any presses etc. Only if it hasn't used it will we do
         // anything
-        if( !menu[currentMenu].subMenu[currentSubMenu].func( bCW, bCCW, bShortPress, bLongPress, bShortPressLeft, bLongPressLeft, bShortPressRight, bLongPressRight ) )
+        if( !menu[currentMenu].subMenu[currentSubMenu].func( inputState ) )
         {
             // A long press takes us out of the menu item
             if( bLongPress )
@@ -1275,7 +2179,7 @@ static void rotaryMenu( bool bCW, bool bCCW, bool bShortPress, bool bLongPress, 
                 bEnteredMenuItem = true;
 
                 // A short press on a menu item calls its function
-                menu[currentMenu].subMenu[currentSubMenu].func( false, false, false, false, false, false, false, false );
+                menu[currentMenu].subMenu[currentSubMenu].func( 0 );
             }
             else if( bLongPress )
             {
@@ -1289,7 +2193,12 @@ static void rotaryMenu( bool bCW, bool bCCW, bool bShortPress, bool bLongPress, 
     }
 }
 
-// Return to simplex VFO mode
+/**
+ * @brief Enter simplex VFO mode.
+ *
+ * This function sets the current VFO mode to simplex, disables RIT and XIT modes,
+ * and ensures the VFO is not in split mode. It then enters VFO mode.
+ */
 static void enterSimplex()
 {
     setCurrentVFORIT( false );
@@ -1298,15 +2207,23 @@ static void enterSimplex()
     enterVFOMode();
 }
 
-// Handle the rotary control while in the quick menu
-static void rotaryQuickMenu( bool bCW, bool bCCW, bool bShortPress, bool bLongPress, bool bShortPressLeft, bool bLongPressLeft, bool bShortPressRight, bool bLongPressRight )
+/**
+ * @brief Handles the rotary control while in the quick menu mode.
+ *
+ * This function processes the rotary control and button presses
+ * when the system is in quick menu mode. It navigates through the
+ * quick menu items and handles entering and exiting the quick menu.
+ *
+ * @param inputState The current state of the rotary control and buttons.
+ */
+static void rotaryQuickMenu( uint16_t inputState )
 {
     // Rotary movement continues to operate the VFO in simplex mode
     if( bCW || bCCW )
     {
         if( !bVFOSplit && vfoState[currentVFO].mode == vfoSimplex )
         {
-            rotaryVFO(bCW, bCCW, bShortPress, bLongPress, bShortPressLeft, bLongPressLeft, bShortPressRight, bLongPressRight);
+            rotaryVFO(inputState);
         }
     }
     else if( bShortPressRight )
@@ -1360,14 +2277,18 @@ static void rotaryQuickMenu( bool bCW, bool bCCW, bool bShortPress, bool bLongPr
     }
 }
 
-// Returns the next band. Allows for skipping bands that do not appear in
-// the quick VFO menu.
-//
-// oldBand      The previous band
-// direction    +1 to go up a band or -1 to go down a band
-// bAllBands    true if all bands in the table are allowed
-//              false means we will skip bands that are not to appear in the
-//              quick VFO menu
+/**
+ * @brief Returns the next band in the specified direction.
+ *
+ * This function determines the next band based on the current band,
+ * the direction of change, and whether all bands are allowed or only
+ * those marked for quick VFO menu.
+ *
+ * @param oldBand The current band.
+ * @param direction The direction to change the band (+1 for next, -1 for previous).
+ * @param bAllBands True to include all bands, false to include only quick VFO menu bands.
+ * @return The next band.
+ */
 static uint8_t nextBand( uint8_t oldBand, int8_t direction, bool bAllBands )
 {
     // The new band starts with the old band - signed as may try to go back from 0
@@ -1398,8 +2319,17 @@ static uint8_t nextBand( uint8_t oldBand, int8_t direction, bool bAllBands )
     return newBand;
 }
 
-// Handle the menu for the VFO band
-static bool menuVFOBand( bool bCW, bool bCCW, bool bShortPress, bool bLongPress, bool bShortPressLeft, bool bLongPressLeft, bool bShortPressRight, bool bLongPressRight )
+/**
+ * @brief Handles the menu for changing the VFO band.
+ *
+ * This function processes the rotary control and button presses
+ * to navigate and select the VFO band. It updates the display
+ * with the current band and allows the user to set a new band.
+ *
+ * @param inputState The current state of the rotary control and buttons.
+ * @return true if the input was used, false otherwise.
+ */
+static bool menuVFOBand( uint16_t inputState )
 {
     // Set to true if we have used the presses etc
     bool bUsed = false;
@@ -1408,7 +2338,7 @@ static bool menuVFOBand( bool bCW, bool bCCW, bool bShortPress, bool bLongPress,
     static int newBand;
     
     // If just entered the menu note the current band
-    if( !bShortPressRight && !bShortPressLeft && !bShortPress &&!bLongPress )
+    if( !(bCW || bCCW || bShortPress || bLongPress || bShortPressLeft || bLongPressLeft || bShortPressRight || bLongPressRight) )
     {
         newBand = currentBand;
     }
@@ -1416,19 +2346,19 @@ static bool menuVFOBand( bool bCW, bool bCCW, bool bShortPress, bool bLongPress,
     // Right and left buttons change band
     if( bShortPressRight )
     {
-        newBand = nextBand( newBand, +1, !bInQuickVFOMenu );
+        newBand = nextBand( newBand, +1, !bInQuickMenuItem );
         bUsed = true;
     }
     else if( bShortPressLeft )
     {
-        newBand = nextBand( newBand, -1, !bInQuickVFOMenu );
+        newBand = nextBand( newBand, -1, !bInQuickMenuItem );
         bUsed = true;
     }
 
     // Display the current band
     char buf[TEXT_BUF_LEN];
     sprintf( buf, "Band: %s", band[newBand].bandName);
-    displayText( MENU_LINE, buf, true );
+    displayMenu( buf );
 
     // Short press sets the new band
     if( bShortPress )
@@ -1446,7 +2376,7 @@ static bool menuVFOBand( bool bCW, bool bCCW, bool bShortPress, bool bLongPress,
             enterVFOMode();
 
             // Left the menu
-            bInQuickVFOMenu = false;
+            bInQuickMenuItem = false;
         }
         
         bUsed = true;
@@ -1454,9 +2384,9 @@ static bool menuVFOBand( bool bCW, bool bCCW, bool bShortPress, bool bLongPress,
 
     // If we entered the menu quickly then a long press takes us out
     // and back into VFO mode
-    if( bLongPress && bInQuickVFOMenu )
+    if( bLongPress && bInQuickMenuItem )
     {
-        bInQuickVFOMenu = false;
+        bInQuickMenuItem = false;
         bInMenuItem = false;
         enterVFOMode();
         bUsed = true;
@@ -1465,49 +2395,298 @@ static bool menuVFOBand( bool bCW, bool bCCW, bool bShortPress, bool bLongPress,
     return bUsed;
 }
 
-// Set the CW reverse state
-void setCWReverse( bool bCWReverse )
+/**
+ * @brief Sets the TX/RX mode.
+ *
+ * This function updates the TX/RX mode and stores the new mode in NVRAM.
+ * It also updates the frequencies to reflect the new mode.
+ *
+ * @param mode The new TX/RX mode to set.
+ */
+void setTRXMode( enum eTRXMode mode )
 {
     // Store in the NVRAM
-    nvramWriteCWReverse( bCWReverse );
+    nvramWriteTRXMode( mode );
+
+    //displayTRXMode();
 
     // Action the change in sideband
     setFrequencies();
 }
 
-static bool menuVFOMode( bool bCW, bool bCCW, bool bShortPress, bool bLongPress, bool bShortPressLeft, bool bLongPressLeft, bool bShortPressRight, bool bLongPressRight )
+/**
+ * @brief Sets the CW reverse state.
+ *
+ * This function updates the CW reverse state and stores the new state in NVRAM.
+ *
+ * @param bCWReverse True to enable CW reverse mode, false to disable it.
+ */
+void setCWReverse( bool bCWReverse )
+{    // Store in the NVRAM
+    setTRXMode( bCWReverse ? cwRevMode : cwMode );
+}
+
+/**
+ * @brief Handles the menu for changing the VFO mode.
+ *
+ * This function processes the rotary control and button presses
+ * to navigate and select the VFO mode. It updates the display
+ * with the current mode and allows the user to set a new mode.
+ *
+ * @param inputState The current state of the rotary control and buttons.
+ * @return true if the input was used, false otherwise.
+ */
+static bool menuVFOMode( uint16_t inputState )
 {
-    // Get the CW mode from NVRAM
-    bool bCWReverse = nvramReadCWReverse();
+    // Get the mode from NVRAM
+    enum eCurrentMode mode = nvramReadTRXMode();
 
     // Set to true if we have used the presses etc
     bool bUsed = false;
     
-    // Left or right toggles
-    if( bShortPressLeft || bShortPressRight )
+    // Left or right changes
+    if( bShortPressRight )
     {
-        // Toggle the CW mode
-        bCWReverse = !bCWReverse;
+        mode = (mode+1) % NUM_TRX_MODES;
 
         // Set the new mode
-        setCWReverse( bCWReverse );
+        setTRXMode( mode );
+
+        bUsed = true;
+    }
+    else if( bShortPressLeft )
+    {
+        if( mode == 0 )
+        {
+            mode = NUM_TRX_MODES - 1;
+        }
+        else
+        {
+            mode--;
+        }
+
+        // Set the new mode
+        setTRXMode( mode );
 
         bUsed = true;
     }
 
-    if( bCWReverse )
+    switch( mode )
     {
-        displayText( MENU_LINE, "VFO CW Reverse", true );
-    }
-    else
-    {
-        displayText( MENU_LINE, "VFO CW Normal", true );
+        case cwMode:
+            displayMenu( "VFO CW Normal" );
+            break;
+
+        case cwRevMode:
+            displayMenu( "VFO CW Reverse" );
+            break;
+
+        case lsbMode:
+            displayMenu( "VFO LSB" );
+            break;
+
+        case usbMode:
+            displayMenu( "VFO USB" );
+            break;
     }
     
     return bUsed;
 }
 
-static bool menuBreakIn( bool bCW, bool bCCW, bool bShortPress, bool bLongPress, bool bShortPressLeft, bool bLongPressLeft, bool bShortPressRight, bool bLongPressRight )
+#ifdef PSDR
+#ifdef LCD_DISPLAY
+/**
+ * @brief Handles the menu for changing the filter.
+ *
+ * This function processes the rotary control and button presses
+ * to navigate and select the filter. It updates the display
+ * with the current filter and allows the user to set a new filter.
+ *
+ * @param inputState The current state of the rotary control and buttons.
+ * @return true if the input was used, false otherwise.
+ */
+static bool menuFilter( uint16_t inputState )
+{
+    uint8_t currentFilter = ioGetFilter();
+
+    bool bDisplay = !(bCW || bCCW || bShortPress || bLongPress || bShortPressLeft || bLongPressLeft || bShortPressRight || bLongPressRight);
+
+    // Set to true if we have used the presses etc
+    bool bUsed = false;
+
+    if( bShortPressRight )
+    {
+        currentFilter = (currentFilter+1)%ioGetNumFilters();
+        bDisplay = true;
+        bUsed = true;
+    }
+    else if( bShortPressLeft )
+    {
+        if( currentFilter == 0 )
+        {
+            currentFilter = ioGetNumFilters() - 1;
+        }
+        else
+        {
+            currentFilter--;
+        }
+        bDisplay = true;
+        bUsed = true;
+    }
+    // If we entered the menu quickly then a short or long press takes us out
+    // and back into VFO mode
+    else if( (bShortPress || bLongPress) && bInQuickMenuItem )
+    {
+        bInQuickMenuItem = false;
+        bInMenuItem = false;
+        enterVFOMode();
+        bUsed = true;
+        bDisplay = false;
+    }
+
+    if( bDisplay )
+    {
+        ioSetFilter( currentFilter );
+        displayMenu( ioGetFilterText() );
+    }
+
+    return bUsed;
+}
+#endif
+
+static bool menuHilbertFilter( uint16_t inputState )
+{
+    uint8_t currentFilter = ioGetHilbertFilter();
+
+    bool bDisplay = !(bCW || bCCW || bShortPress || bLongPress || bShortPressLeft || bLongPressLeft || bShortPressRight || bLongPressRight);
+
+    // Set to true if we have used the presses etc
+    bool bUsed = false;
+
+    if( bShortPressRight )
+    {
+        currentFilter = (currentFilter+1)%ioGetNumHilbertFilters();
+        bDisplay = true;
+        bUsed = true;
+    }
+    else if( bShortPressLeft )
+    {
+        if( currentFilter == 0 )
+        {
+            currentFilter = ioGetNumHilbertFilters() - 1;
+        }
+        else
+        {
+            currentFilter--;
+        }
+        bDisplay = true;
+        bUsed = true;
+    }
+    // If we entered the menu quickly then a short or long press takes us out
+    // and back into VFO mode
+    else if( (bShortPress || bLongPress) && bInQuickMenuItem )
+    {
+        bInQuickMenuItem = false;
+        bInMenuItem = false;
+        enterVFOMode();
+        bUsed = true;
+        bDisplay = false;
+    }
+
+    if( bDisplay )
+    {
+        ioSetHilbertFilter( currentFilter );
+        displayMenu( ioGetHilbertFilterText() );
+    }
+
+    return bUsed;
+}
+
+/**
+ * @brief Handles the menu for changing the SDR output source.
+ *
+ * This function processes the rotary control and button presses
+ * to navigate and select the SDR output source. It updates the display
+ * with the current output source and allows the user to set a new source.
+ *
+ * @param inputState The current state of the rotary control and buttons.
+ * @return true if the input was used, false otherwise.
+ */
+static bool menuSDR( uint16_t inputState )
+{
+    // Set to true if we have used the presses etc
+    bool bUsed = false;
+    
+    if( bShortPressRight )
+    {
+        outputSource = (outputSource+1)%sdrNum;
+        bUsed = true;
+    }
+    else if( bShortPressLeft )
+    {
+        if( outputSource == 0 )
+        {
+            outputSource = sdrNum - 1;
+        }
+        else
+        {
+            outputSource--;
+        }
+        bUsed = true;
+    }
+
+    switch(outputSource)
+    {
+        case sdrIMQ:
+            displayMenu( "I-Q" );
+            break;
+        case sdrIPQ:
+            displayMenu( "I+Q" );
+            break;
+        case sdrI:
+            displayMenu( "I" );
+            break;
+        case sdrQ:
+            displayMenu( "Q" );
+            break;
+        case sdrIHilbert:
+            displayMenu( "I Hilbert" );
+            break;
+        case sdrQHilbert:
+            displayMenu( "Q Hilbert" );
+            break;
+        case sdrIDelayed:
+            displayMenu( "I Delayed" );
+            break;
+        case sdrQDelayed:
+            displayMenu( "Q Delayed" );
+            break;
+        case sdrSineWave:
+            displayMenu( "Sinewave" );
+            break;
+        case sdrSilence:
+            displayMenu( "Silence" );
+            break;
+        default:
+            displayMenu( "Invalid I/Q" );
+            break;
+    }
+
+    return bUsed;
+}
+#endif
+
+/**
+ * @brief Handles the menu for enabling or disabling break-in.
+ *
+ * This function processes the rotary control and button presses
+ * to toggle the break-in mode. It updates the display with the
+ * current break-in status.
+ *
+ * @param inputState The current state of the rotary control and buttons.
+ * @return true if the input was used, false otherwise.
+ */
+static bool menuBreakIn( uint16_t inputState )
 {
     // Set to true if we have used the presses etc
     bool bUsed = false;
@@ -1521,17 +2700,27 @@ static bool menuBreakIn( bool bCW, bool bCCW, bool bShortPress, bool bLongPress,
 
     if( bBreakIn )
     {
-        displayText( MENU_LINE, "Break in: On", true );
+        displayMenu( "Break in: On" );
     }
     else
     {
-        displayText( MENU_LINE, "Break in: Off", true );
+        displayMenu( "Break in: Off" );
     }
     
     return bUsed;
 }
 
-static bool menuSidetone( bool bCW, bool bCCW, bool bShortPress, bool bLongPress, bool bShortPressLeft, bool bLongPressLeft, bool bShortPressRight, bool bLongPressRight )
+/**
+ * @brief Handles the menu for enabling or disabling the sidetone.
+ *
+ * This function processes the rotary control and button presses
+ * to toggle the sidetone. It updates the display with the
+ * current sidetone status.
+ *
+ * @param inputState The current state of the rotary control and buttons.
+ * @return true if the input was used, false otherwise.
+ */
+static bool menuSidetone( uint16_t inputState )
 {
     // Set to true if we have used the presses etc
     bool bUsed = false;
@@ -1545,17 +2734,27 @@ static bool menuSidetone( bool bCW, bool bCCW, bool bShortPress, bool bLongPress
 
     if( bSidetone )
     {
-        displayText( MENU_LINE, "Sidetone: Enabled", true );
+        displayMenu( "Sidetone: Enabled" );
     }
     else
     {
-        displayText( MENU_LINE, "Sidetone: Disabled", true );
+        displayMenu( "Sidetone: Disabled" );
     }
     
     return bUsed;
 }
 
-static bool menuTestRXMute( bool bCW, bool bCCW, bool bShortPress, bool bLongPress, bool bShortPressLeft, bool bLongPressLeft, bool bShortPressRight, bool bLongPressRight )
+/**
+ * @brief Handles the menu for testing RX mute.
+ *
+ * This function processes the rotary control and button presses
+ * to toggle the RX mute test mode. It updates the display with the
+ * current RX mute test status.
+ *
+ * @param inputState The current state of the rotary control and buttons.
+ * @return true if the input was used, false otherwise.
+ */
+static bool menuTestRXMute( uint16_t inputState )
 {
     // Set to true if we have used the presses etc
     bool bUsed = false;
@@ -1570,19 +2769,29 @@ static bool menuTestRXMute( bool bCW, bool bCCW, bool bShortPress, bool bLongPre
     if( bTestRXMute )
     {
         muteRX( true );
-        displayText( MENU_LINE, "Test RX Mute: On", true );
+        displayMenu( "Test RX Mute: On" );
     }
     else
     {
         muteRX( false );
-        displayText( MENU_LINE, "Test RX Mute: Off", true );
+        displayMenu( "Test RX Mute: Off" );
     }
     
     return bUsed;
 }
 
 
-static bool menuRXClock( bool bCW, bool bCCW, bool bShortPress, bool bLongPress, bool bShortPressLeft, bool bLongPressLeft, bool bShortPressRight, bool bLongPressRight )
+/**
+ * @brief Handles the menu for enabling or disabling the RX clock.
+ *
+ * This function processes the rotary control and button presses
+ * to toggle the RX clock. It updates the display with the
+ * current RX clock status.
+ *
+ * @param inputState The current state of the rotary control and buttons.
+ * @return true if the input was used, false otherwise.
+ */
+static bool menuRXClock( uint16_t inputState )
 {
     // Set to true if we have used the presses etc
     bool bUsed = false;
@@ -1597,18 +2806,132 @@ static bool menuRXClock( bool bCW, bool bCCW, bool bShortPress, bool bLongPress,
     if( bRXClockEnabled )
     {
         enableRXClock( true );
-        displayText( MENU_LINE, "RX Clock: Enabled", true );
+        displayMenu( "RX Clock: Enabled" );
     }
     else
     {
         enableRXClock( false );
-        displayText( MENU_LINE, "RX Clock: Disabled", true );
+        displayMenu( "RX Clock: Disabled" );
     }
     
     return bUsed;
 }
 
-static bool menuTXDelay( bool bCW, bool bCCW, bool bShortPress, bool bLongPress, bool bShortPressLeft, bool bLongPressLeft, bool bShortPressRight, bool bLongPressRight )
+#ifdef PSDR
+/**
+ * @brief Handles the menu for enabling or disabling the roofing filter.
+ *
+ * This function processes the rotary control and button presses
+ * to toggle the roofing filter. It updates the display with the
+ * current roofing filter status.
+ *
+ * @param inputState The current state of the rotary control and buttons.
+ * @return true if the input was used, false otherwise.
+ */
+static bool menuRoofing( uint16_t inputState )
+{
+    // Set to true if we have used the presses etc
+    bool bUsed = false;
+    
+    // Left or right toggles
+    if( bShortPressLeft || bShortPressRight || bCW || bCCW )
+    {
+        applyRoofingFilter = !applyRoofingFilter;
+        bUsed = true;
+    }
+
+    if( applyRoofingFilter )
+    {
+        displayMenu( "Roofing:Enabled" );
+    }
+    else
+    {
+        displayMenu( "Roofing:Disabled" );
+    }
+    
+    return bUsed;
+}
+
+/**
+ * @brief Handles the menu for applying gains.
+ *
+ * This function processes the rotary control and button presses
+ * to toggle the apply gains mode. It updates the display with the
+ * current apply gains status.
+ *
+ * @param inputState The current state of the rotary control and buttons.
+ * @return true if the input was used, false otherwise.
+ */
+static bool menuApplyGains( uint16_t inputState )
+{
+    // Set to true if we have used the presses etc
+    bool bUsed = false;
+    
+    // Left or right toggles
+    if( bShortPressLeft || bShortPressRight )
+    {
+        applyGains = !applyGains;
+        bUsed = true;
+    }
+
+    if( applyGains )
+    {
+        displayMenu( "Gains: Enabled" );
+    }
+    else
+    {
+        displayMenu( "Gains: Disabled" );
+    }
+    
+    return bUsed;
+}
+
+/**
+ * @brief Handles the menu for adjusting the phase.
+ *
+ * This function processes the rotary control and button presses
+ * to toggle the phase adjustment mode. It updates the display with the
+ * current phase adjustment status.
+ *
+ * @param inputState The current state of the rotary control and buttons.
+ * @return true if the input was used, false otherwise.
+ */
+static bool menuAdjustPhase( uint16_t inputState )
+{
+    // Set to true if we have used the presses etc
+    bool bUsed = false;
+    
+    // Left or right toggles
+    if( bShortPressLeft || bShortPressRight )
+    {
+        adjustPhase = !adjustPhase;
+        bUsed = true;
+    }
+
+    if( adjustPhase )
+    {
+        displayMenu( "Phase: Enabled" );
+    }
+    else
+    {
+        displayMenu( "Phase: Disabled" );
+    }
+    
+    return bUsed;
+}
+#endif
+
+/**
+ * @brief Handles the menu for setting the TX delay.
+ *
+ * This function processes the rotary control and button presses
+ * to adjust the TX delay. It updates the display with the
+ * current TX delay value.
+ *
+ * @param inputState The current state of the rotary control and buttons.
+ * @return true if the input was used, false otherwise.
+ */
+static bool menuTXDelay( uint16_t inputState )
 {
     // Set to true if we have used the presses etc
     bool bUsed = false;
@@ -1644,12 +2967,22 @@ static bool menuTXDelay( bool bCW, bool bCCW, bool bShortPress, bool bLongPress,
     }
     char buf[TEXT_BUF_LEN];
     sprintf( buf, "TX delay: %d", txDelay);
-    displayText( MENU_LINE, buf, true );
+    displayMenu( buf );
     
     return bUsed;
 }
 
-static bool menuTXClock( bool bCW, bool bCCW, bool bShortPress, bool bLongPress, bool bShortPressLeft, bool bLongPressLeft, bool bShortPressRight, bool bLongPressRight )
+/**
+ * @brief Handles the menu for enabling or disabling the TX clock.
+ *
+ * This function processes the rotary control and button presses
+ * to toggle the TX clock. It updates the display with the
+ * current TX clock status.
+ *
+ * @param inputState The current state of the rotary control and buttons.
+ * @return true if the input was used, false otherwise.
+ */
+static bool menuTXClock( uint16_t inputState )
 {
     // Set to true if we have used the presses etc
     bool bUsed = false;
@@ -1663,17 +2996,27 @@ static bool menuTXClock( bool bCW, bool bCCW, bool bShortPress, bool bLongPress,
 
     if( bTXClockEnabled )
     {
-        displayText( MENU_LINE, "TX Clock: Enabled", true );
+        displayMenu( "TX Clock: Enabled" );
     }
     else
     {
-        displayText( MENU_LINE, "TX Clock: Disabled", true );
+        displayMenu( "TX Clock: Disabled" );
     }
     
     return bUsed;
 }
 
-static bool menuTXOut( bool bCW, bool bCCW, bool bShortPress, bool bLongPress, bool bShortPressLeft, bool bLongPressLeft, bool bShortPressRight, bool bLongPressRight )
+/**
+ * @brief Handles the menu for enabling or disabling the TX output.
+ *
+ * This function processes the rotary control and button presses
+ * to toggle the TX output. It updates the display with the
+ * current TX output status.
+ *
+ * @param inputState The current state of the rotary control and buttons.
+ * @return true if the input was used, false otherwise.
+ */
+static bool menuTXOut( uint16_t inputState )
 {
     // Set to true if we have used the presses etc
     bool bUsed = false;
@@ -1687,17 +3030,27 @@ static bool menuTXOut( bool bCW, bool bCCW, bool bShortPress, bool bLongPress, b
 
     if( bTXOutEnabled )
     {
-        displayText( MENU_LINE, "TX Out: Enabled", true );
+        displayMenu( "TX Out: Enabled" );
     }
     else
     {
-        displayText( MENU_LINE, "TX Out: Disabled", true );
+        displayMenu( "TX Out: Disabled" );
     }
     
     return bUsed;
 }
 
-static bool menuUnmuteDelay( bool bCW, bool bCCW, bool bShortPress, bool bLongPress, bool bShortPressLeft, bool bLongPressLeft, bool bShortPressRight, bool bLongPressRight )
+/**
+ * @brief Handles the menu for setting the unmute delay.
+ *
+ * This function processes the rotary control and button presses
+ * to adjust the unmute delay. It updates the display with the
+ * current unmute delay value.
+ *
+ * @param inputState The current state of the rotary control and buttons.
+ * @return true if the input was used, false otherwise.
+ */
+static bool menuUnmuteDelay( uint16_t inputState )
 {
     // Set to true if we have used the presses etc
     bool bUsed = false;
@@ -1733,13 +3086,22 @@ static bool menuUnmuteDelay( bool bCW, bool bCCW, bool bShortPress, bool bLongPr
     }
     char buf[TEXT_BUF_LEN];
     sprintf( buf, "Unmute dly: %d", unmuteDelay);
-    displayText( MENU_LINE, buf, true );
+    displayMenu( buf );
     
     return bUsed;
 }
 
-
-static bool menuMuteDelay( bool bCW, bool bCCW, bool bShortPress, bool bLongPress, bool bShortPressLeft, bool bLongPressLeft, bool bShortPressRight, bool bLongPressRight )
+/**
+ * @brief Handles the menu for setting the mute delay.
+ *
+ * This function processes the rotary control and button presses
+ * to adjust the mute delay. It updates the display with the
+ * current mute delay value.
+ *
+ * @param inputState The current state of the rotary control and buttons.
+ * @return true if the input was used, false otherwise.
+ */
+static bool menuMuteDelay( uint16_t inputState )
 {
     // Set to true if we have used the presses etc
     bool bUsed = false;
@@ -1775,14 +3137,42 @@ static bool menuMuteDelay( bool bCW, bool bCCW, bool bShortPress, bool bLongPres
     }
     char buf[TEXT_BUF_LEN];
     sprintf( buf, "Mute dly: %d", muteDelay);
-    displayText( MENU_LINE, buf, true );
+    displayMenu( buf );
     
     return bUsed;
 }
 
-// Menu for changing the crystal frequency
-// Each digit can be changed individually
-static bool menuXtalFreq( bool bCW, bool bCCW, bool bShortPress, bool bLongPress, bool bShortPressLeft, bool bLongPressLeft, bool bShortPressRight, bool bLongPressRight )
+/**
+ * @brief Sets the cursor position on the menu line.
+ *
+ * This function positions the cursor at the specified position on the menu line.
+ *
+ * @param pos The position on the menu line to set the cursor.
+ */
+static void cursorMenu( uint8_t pos )
+{
+#ifdef LCD_DISPLAY
+    displayCursor( pos, MENU_LINE, cursorUnderline );
+#endif    
+
+#ifdef OLED_DISPLAY
+    // Draw it on the OLED
+    drawCursor( menuCursorX+pos*getFontWidth(MENU_FONT), menuCursorY, getFontWidth(MENU_FONT) );
+#endif
+}
+
+/**
+ * @brief Handles the menu for changing the crystal frequency.
+ *
+ * This function processes the rotary control and button presses
+ * to navigate and select the crystal frequency. It updates the display
+ * with the current frequency and allows the user to set a new frequency.
+ * Each digit can be changed individually.
+ *
+ * @param inputState The current state of the rotary control and buttons.
+ * @return true if the input was used, false otherwise.
+ */
+static bool menuXtalFreq( uint16_t inputState )
 {
     // When the menu is entered we are changing the first changeable digit of the
     // crystal frequency i.e. MHz. This is digit 7.
@@ -1814,7 +3204,7 @@ static bool menuXtalFreq( bool bCW, bool bCCW, bool bShortPress, bool bLongPress
         settingFreqPos = INITIAL_FREQ_POS;
         
         // Set the cursor on the digit to be changed
-        displayCursor( settingFreqPos, MENU_LINE, cursorUnderline );
+        cursorMenu( settingFreqPos );
 
         // We aren't asking to save the new frequency to NVRAM just yet
         bAskToSaveSettingFreq = false;
@@ -1854,7 +3244,7 @@ static bool menuXtalFreq( bool bCW, bool bCCW, bool bShortPress, bool bLongPress
         if( bLongPress )
         {
             // Don't want the cursor any more
-            displayCursor( 0, 0, cursorOff );
+            turnCursorOff();    
 
             // Set back the original frequency
             oscSetXtalFrequency( nvramReadXtalFreq() );
@@ -1876,9 +3266,9 @@ static bool menuXtalFreq( bool bCW, bool bCCW, bool bShortPress, bool bLongPress
                 bAskToSaveSettingFreq = true;
                 
                 // Don't want the cursor any more
-                displayCursor( 0, 0, cursorOff );
+                turnCursorOff();    
 
-                displayText( MENU_LINE, "Short press to save", true );
+                displayMenu( "Short press to save" );
             }
         }
         else
@@ -1921,7 +3311,7 @@ static bool menuXtalFreq( bool bCW, bool bCCW, bool bShortPress, bool bLongPress
                 }
 
                 // Set the cursor to the correct position for the current amount of change
-                displayCursor( settingFreqPos, MENU_LINE, cursorUnderline );
+                cursorMenu( settingFreqPos );
             }
             else if( bShortPressLeft )
             {
@@ -1940,13 +3330,13 @@ static bool menuXtalFreq( bool bCW, bool bCCW, bool bShortPress, bool bLongPress
                 }
 
                 // Set the cursor to the correct position for the current amount of change
-                displayCursor( settingFreqPos, MENU_LINE, cursorUnderline );
+                cursorMenu( settingFreqPos );
             }
 
             // Display the current frequency
             char buf[TEXT_BUF_LEN];
             sprintf( buf, "Xtal: %0lu", newFreq);
-            displayText( MENU_LINE, buf, true );
+            displayMenu( buf );
 
             // If the frequency is to change...
             if( newFreq != oldFreq )
@@ -1963,9 +3353,18 @@ static bool menuXtalFreq( bool bCW, bool bCCW, bool bShortPress, bool bLongPress
     return bUsed;
 }
 
-// Menu for changing the intermediate frequency (0 means direct conversion receiver)
-// Each digit can be changed individually
-static bool menuIntermediateFreq( bool bCW, bool bCCW, bool bShortPress, bool bLongPress, bool bShortPressLeft, bool bLongPressLeft, bool bShortPressRight, bool bLongPressRight )
+/**
+ * @brief Handles the menu for changing the intermediate frequency (0 means direct conversion receiver).
+ *
+ * This function processes the rotary control and button presses
+ * to navigate and select the intermediate frequency. It updates the display
+ * with the current frequency and allows the user to set a new frequency.
+ * Each digit can be changed individually.
+ *
+ * @param inputState The current state of the rotary control and buttons.
+ * @return true if the input was used, false otherwise.
+ */
+static bool menuIntermediateFreq( uint16_t inputState )
 {
     // When the menu is entered we are changing the first changeable digit of the
     // intermediate frequency i.e. 10MHz. This is character 5.
@@ -1997,7 +3396,7 @@ static bool menuIntermediateFreq( bool bCW, bool bCCW, bool bShortPress, bool bL
         settingFreqPos = INITIAL_IF_POS;
         
         // Set the cursor on the digit to be changed
-        displayCursor( settingFreqPos, MENU_LINE, cursorUnderline );
+        cursorMenu( settingFreqPos );
 
         // We aren't asking to save the new frequency to NVRAM just yet
         bAskToSaveSettingFreq = false;
@@ -2037,7 +3436,7 @@ static bool menuIntermediateFreq( bool bCW, bool bCCW, bool bShortPress, bool bL
         if( bLongPress )
         {
             // Don't want the cursor any more
-            displayCursor( 0, 0, cursorOff );
+            turnCursorOff();    
 
             // Set back the original frequency
             intermediateFrequency = nvramReadIntermediateFreq();
@@ -2059,9 +3458,9 @@ static bool menuIntermediateFreq( bool bCW, bool bCCW, bool bShortPress, bool bL
                 bAskToSaveSettingFreq = true;
                 
                 // Don't want the cursor any more
-                displayCursor( 0, 0, cursorOff );
+                turnCursorOff();    
 
-                displayText( MENU_LINE, "Short press to save", true );
+                displayMenu( "Short press to save" );
             }
         }
         else
@@ -2104,7 +3503,7 @@ static bool menuIntermediateFreq( bool bCW, bool bCCW, bool bShortPress, bool bL
                 }
 
                 // Set the cursor to the correct position for the current amount of change
-                displayCursor( settingFreqPos, MENU_LINE, cursorUnderline );
+                cursorMenu( settingFreqPos );
             }
             else if( bShortPressLeft )
             {
@@ -2123,13 +3522,13 @@ static bool menuIntermediateFreq( bool bCW, bool bCCW, bool bShortPress, bool bL
                 }
 
                 // Set the cursor to the correct position for the current amount of change
-                displayCursor( settingFreqPos, MENU_LINE, cursorUnderline );
+                cursorMenu( settingFreqPos );
             }
 
             // Display the current frequency
             char buf[TEXT_BUF_LEN];
             sprintf( buf, "IF: %08lu", newFreq);
-            displayText( MENU_LINE, buf, true );
+            displayMenu( buf );
 
             // If the frequency is to change...
             if( newFreq != intermediateFrequency )
@@ -2146,7 +3545,17 @@ static bool menuIntermediateFreq( bool bCW, bool bCCW, bool bShortPress, bool bL
     return bUsed;
 }
 
-static bool menuKeyerMode( bool bCW, bool bCCW, bool bShortPress, bool bLongPress, bool bShortPressLeft, bool bLongPressLeft, bool bShortPressRight, bool bLongPressRight )
+/**
+ * @brief Handles the menu for changing the keyer mode.
+ *
+ * This function processes the rotary control and button presses
+ * to navigate and select the keyer mode. It updates the display
+ * with the current mode and allows the user to set a new mode.
+ *
+ * @param inputState The current state of the rotary control and buttons.
+ * @return true if the input was used, false otherwise.
+ */
+static bool menuKeyerMode( uint16_t inputState )
 {
     // Set to true if we have used the presses etc
     bool bUsed = false;
@@ -2184,16 +3593,16 @@ static bool menuKeyerMode( bool bCW, bool bCCW, bool bShortPress, bool bLongPres
     switch( keyerMode )
     {
         case morseKeyerIambicA:
-            displayText( MENU_LINE, "Keyer: Iambic A", true );
+            displayMenu( "Keyer: Iambic A" );
             break;
 
         case morseKeyerIambicB:
-            displayText( MENU_LINE, "Keyer: Iambic B", true );
+            displayMenu( "Keyer: Iambic B" );
             break;
 
         case morseKeyerUltimatic:
         default:
-            displayText( MENU_LINE, "Keyer: Ultimatic", true );
+            displayMenu( "Keyer: Ultimatic" );
             break;
     }
     
@@ -2212,7 +3621,18 @@ static bool menuKeyerMode( bool bCW, bool bCCW, bool bShortPress, bool bLongPres
     return bUsed;
 }
 
-static bool menuBacklight( bool bCW, bool bCCW, bool bShortPress, bool bLongPress, bool bShortPressLeft, bool bLongPressLeft, bool bShortPressRight, bool bLongPressRight )
+#ifdef LCD_DISPLAY
+/**
+ * @brief Handles the menu for changing the backlight mode.
+ *
+ * This function processes the rotary control and button presses
+ * to navigate and select the backlight mode. It updates the display
+ * with the current mode and allows the user to set a new mode.
+ *
+ * @param inputState The current state of the rotary control and buttons.
+ * @return true if the input was used, false otherwise.
+ */
+static bool menuBacklight( uint16_t inputState )
 {
     // Set to true if we have used the presses etc
     bool bUsed = false;
@@ -2250,16 +3670,16 @@ static bool menuBacklight( bool bCW, bool bCCW, bool bShortPress, bool bLongPres
     switch( backlightMode )
     {
         case backlightOff:
-            displayText( MENU_LINE, "Backlight: Off", true );
+            displayMenu( "Backlight: Off" );
             break;
 
         case backlightOn:
-            displayText( MENU_LINE, "Backlight: On", true );
+            displayMenu( "Backlight: On" );
             break;
 
         case backlightAuto:
         default:
-            displayText( MENU_LINE, "Backlight: Auto", true );
+            displayMenu( "Backlight: Auto" );
             break;
     }
 
@@ -2295,41 +3715,54 @@ static bool menuBacklight( bool bCW, bool bCCW, bool bShortPress, bool bLongPres
 
     return bUsed;
 }
+#endif
 
 #ifdef VARIABLE_SIDETONE_VOLUME
-static bool menuSidetoneVolume( bool bCW, bool bCCW, bool bShortPress, bool bLongPress, bool bShortPressLeft, bool bLongPressLeft, bool bShortPressRight, bool bLongPressRight )
+/**
+ * @brief Handles the menu for changing the sidetone volume.
+ *
+ * This function processes the rotary control and button presses
+ * to adjust the sidetone volume. It updates the display with the
+ * current sidetone volume value.
+ *
+ * @param inputState The current state of the rotary control and buttons.
+ * @return true if the input was used, false otherwise.
+ */
+static bool menuSidetoneVolume( uint16_t inputState )
 {
+    uint8_t sidetoneVolume = ioGetSidetoneVolume();
+
     // Set to true if we have used the presses etc
     bool bUsed = false;
     
     if( bCW )
     {
-        if( sidetoneVolume < MAX_SIDETONE_PWM )
+        if( sidetoneVolume < MAX_SIDETONE_VOLUME )
         {
-            sidetoneVolume += SIDETONE_PWM_INC;
+            sidetoneVolume += SIDETONE_VOLUME_INC;
         }
         bUsed = true;
     }
     else if( bCCW )
     {
-        if( sidetoneVolume > MIN_SIDETONE_PWM )
+        if( sidetoneVolume > MIN_SIDETONE_VOLUME )
         {
-            sidetoneVolume -= SIDETONE_PWM_INC;
+            sidetoneVolume -= SIDETONE_VOLUME_INC;
         }
         bUsed = true;
     }
     else if( bShortPress )
     {
-        sidetoneVolume = DEFAULT_SIDETONE_PWM;
+        sidetoneVolume = DEFAULT_SIDETONE_VOLUME;
         bUsed = true;
     }
     char buf[TEXT_BUF_LEN];
     sprintf( buf, "Sidetone vol: %d", sidetoneVolume);
-    displayText( MENU_LINE, buf, true );
+    displayMenu( buf );
     
     if( bUsed )
     {
-        ioWriteSidetoneDutyCycle( sidetoneVolume );
+        ioSetSidetoneVolume( sidetoneVolume );
         nvramWriteSidetoneVolume( sidetoneVolume );
     }
     
@@ -2337,7 +3770,408 @@ static bool menuSidetoneVolume( bool bCW, bool bCCW, bool bShortPress, bool bLon
 }
 #endif
 
-// Gets a VFO frequency - usually called from CAT control
+#ifdef PSDR
+/**
+ * @brief Handles the menu for adjusting the I Gain.
+ *
+ * This function processes the rotary control and button presses
+ * to adjust the I Gain. It updates the display with the
+ * current I Gain value.
+ *
+ * @param inputState The current state of the rotary control and buttons.
+ * @return true if the input was used, false otherwise.
+ */
+static bool menuIGain( uint16_t inputState )
+{
+    // Set to true if we have used the presses etc
+    bool bUsed = false;
+    
+    if( bCW )
+    {
+        if( iGain < MAX_I_GAIN )
+        {
+            iGain+=100;
+        }
+        bUsed = true;
+    }
+    else if( bCCW )
+    {
+        if( iGain > MIN_I_GAIN )
+        {
+            iGain-=100;
+        }
+        bUsed = true;
+    }
+    else if( bShortPressRight )
+    {
+        if( iGain < MAX_I_GAIN )
+        {
+            iGain+=1000;
+        }
+        bUsed = true;
+    }
+    else if( bShortPressLeft )
+    {
+        if( iGain > MIN_I_GAIN )
+        {
+            iGain-=1000;
+        }
+        bUsed = true;
+    }
+    else if( bShortPress )
+    {
+        iGain = DEFAULT_I_GAIN;
+        bUsed = true;
+    }
+    char buf[TEXT_BUF_LEN];
+    sprintf( buf, "I Gain: %d", iGain);
+    displayMenu( buf );
+    
+    return bUsed;
+}
+
+/**
+ * @brief Handles the menu for adjusting the Q Gain.
+ *
+ * This function processes the rotary control and button presses
+ * to adjust the Q Gain. It updates the display with the
+ * current Q Gain value.
+ *
+ * @param inputState The current state of the rotary control and buttons.
+ * @return true if the input was used, false otherwise.
+ */
+static bool menuQGain( uint16_t inputState )
+{
+    // Set to true if we have used the presses etc
+    bool bUsed = false;
+    
+    if( bCW )
+    {
+        if( qGain < MAX_Q_GAIN )
+        {
+            qGain+=100;
+        }
+        bUsed = true;
+    }
+    else if( bCCW )
+    {
+        if( qGain > MIN_Q_GAIN )
+        {
+            qGain-=100;
+        }
+        bUsed = true;
+    }
+    else if( bShortPressRight )
+    {
+        if( qGain < MAX_Q_GAIN )
+        {
+            qGain+=1000;
+        }
+        bUsed = true;
+    }
+    else if( bShortPressLeft )
+    {
+        if( qGain > MIN_Q_GAIN )
+        {
+            qGain-=1000;
+        }
+        bUsed = true;
+    }
+    else if( bShortPress )
+    {
+        qGain = DEFAULT_Q_GAIN;
+        bUsed = true;
+    }
+    char buf[TEXT_BUF_LEN];
+    sprintf( buf, "Q Gain: %d", qGain);
+    displayMenu( buf );
+    
+    return bUsed;
+}
+
+/**
+ * @brief Handles the menu for adjusting the IQ Gain.
+ *
+ * This function processes the rotary control and button presses
+ * to adjust the IQ Gain. It updates the display with the
+ * current IQ Gain value.
+ *
+ * @param inputState The current state of the rotary control and buttons.
+ * @return true if the input was used, false otherwise.
+ */
+static bool menuIQGain( uint16_t inputState )
+{
+    // Set to true if we have used the presses etc
+    bool bUsed = false;
+    
+    if( bCW )
+    {
+        if( iqGain < MAX_IQ_GAIN )
+        {
+            iqGain+=100;
+        }
+        bUsed = true;
+    }
+    else if( bCCW )
+    {
+        if( iqGain > MIN_IQ_GAIN )
+        {
+            iqGain-=100;
+        }
+        bUsed = true;
+    }
+    else if( bShortPressRight )
+    {
+        if( iqGain < MAX_IQ_GAIN )
+        {
+            iqGain+=1000;
+        }
+        bUsed = true;
+    }
+    else if( bShortPressLeft )
+    {
+        if( iqGain > MIN_IQ_GAIN )
+        {
+            iqGain-=1000;
+        }
+        bUsed = true;
+    }
+    else if( bShortPress )
+    {
+        iqGain = DEFAULT_IQ_GAIN;
+        bUsed = true;
+    }
+    char buf[TEXT_BUF_LEN];
+    sprintf( buf, "IQ Gain: %d", iqGain);
+    displayMenu( buf );
+    
+    return bUsed;
+}
+
+/**
+ * @brief Handles the menu for adjusting the mute factor.
+ *
+ * This function processes the rotary control and button presses
+ * to adjust the mute factor. It updates the display with the
+ * current mute factor value.
+ *
+ * @param inputState The current state of the rotary control and buttons.
+ * @return true if the input was used, false otherwise.
+ */
+static bool menuMuteFactor( uint16_t inputState )
+{
+    // Set to true if we have used the presses etc
+    bool bUsed = false;
+    
+    if( bCW )
+    {
+        if( maxMuteFactor < 10 )
+        {
+            maxMuteFactor++;
+        }
+        else if( maxMuteFactor <= (MAX_MUTE_FACTOR - 10) )
+        {
+            maxMuteFactor+=10;
+        }
+        bUsed = true;
+    }
+    else if( bCCW )
+    {
+        if( maxMuteFactor >= 20 )
+        {
+            maxMuteFactor-=10;
+        }
+        else if( maxMuteFactor > MIN_MUTE_FACTOR )
+        {
+            maxMuteFactor--;
+        }
+        bUsed = true;
+    }
+    else if( bShortPressRight )
+    {
+        if( maxMuteFactor < (MAX_MUTE_FACTOR - 100) )
+        {
+            maxMuteFactor+=100;
+        }
+        bUsed = true;
+    }
+    else if( bShortPressLeft )
+    {
+        if( maxMuteFactor >= (MIN_MUTE_FACTOR + 100) )
+        {
+            maxMuteFactor-=100;
+        }
+        bUsed = true;
+    }
+    else if( bShortPress )
+    {
+        if( maxMuteFactor == DEFAULT_MAX_MUTE_FACTOR )
+        {
+            maxMuteFactor = 10 * DEFAULT_MAX_MUTE_FACTOR;
+        }
+        else
+        {
+            maxMuteFactor = DEFAULT_MAX_MUTE_FACTOR;
+        }
+        bUsed = true;
+    }
+    char buf[TEXT_BUF_LEN];
+    sprintf( buf, "Mute f: %d", maxMuteFactor);
+    displayMenu( buf );
+    
+    return bUsed;
+}
+
+/**
+ * @brief Handles the menu for adjusting the left ADC volume.
+ *
+ * This function processes the rotary control and button presses
+ * to adjust the left ADC volume. It updates the display with the
+ * current left ADC volume value.
+ *
+ * @param inputState The current state of the rotary control and buttons.
+ * @return true if the input was used, false otherwise.
+ */
+static bool menuLeftADCVolume( uint16_t inputState )
+{
+    // Set to true if we have used the presses etc
+    bool bUsed = false;
+
+    uint8_t vol, currentVol;
+    vol = currentVol = WM8960GetLeftADCVolume();
+    
+    if( bCW )
+    {
+        if( vol < MAX_ADC_VOLUME )
+        {
+            vol++;
+        }
+        bUsed = true;
+    }
+    else if( bCCW )
+    {
+        if( vol > MIN_ADC_VOLUME )
+        {
+            vol--;
+        }
+        bUsed = true;
+    }
+    else if( bShortPress )
+    {
+        vol = DEFAULT_LEFT_ADC_VOLUME;
+        bUsed = true;
+    }
+
+    if( vol != currentVol )
+    {
+        WM8960SetLeftADCVolume( vol );
+    }
+
+    char buf[TEXT_BUF_LEN];
+    sprintf( buf, "Left vol: %d", vol);
+    displayMenu( buf );
+    
+    return bUsed;
+}
+
+/**
+ * @brief Handles the menu for adjusting the right ADC volume.
+ *
+ * This function processes the rotary control and button presses
+ * to adjust the right ADC volume. It updates the display with the
+ * current right ADC volume value.
+ *
+ * @param inputState The current state of the rotary control and buttons.
+ * @return true if the input was used, false otherwise.
+ */
+static bool menuRightADCVolume( uint16_t inputState )
+{
+    // Set to true if we have used the presses etc
+    bool bUsed = false;
+
+    uint8_t vol, currentVol;
+    vol = currentVol = WM8960GetRightADCVolume();
+    
+    if( bCW )
+    {
+        if( vol < MAX_ADC_VOLUME )
+        {
+            vol++;
+        }
+        bUsed = true;
+    }
+    else if( bCCW )
+    {
+        if( vol > MIN_ADC_VOLUME )
+        {
+            vol--;
+        }
+        bUsed = true;
+    }
+    else if( bShortPress )
+    {
+        vol = DEFAULT_LEFT_ADC_VOLUME;
+        bUsed = true;
+    }
+
+    if( vol != currentVol )
+    {
+        WM8960SetRightADCVolume( vol );
+    }
+
+    char buf[TEXT_BUF_LEN];
+    sprintf( buf, "Right vol: %d", vol);
+    displayMenu( buf );
+    
+    return bUsed;
+}
+
+/**
+ * @brief Handles the menu for adjusting the IQ phasing.
+ *
+ * This function processes the rotary control and button presses
+ * to adjust the IQ phasing. It updates the display with the
+ * current IQ phasing value.
+ *
+ * @param inputState The current state of the rotary control and buttons.
+ * @return true if the input was used, false otherwise.
+ */
+static bool menuIQPhasing( uint16_t inputState )
+{
+    // Set to true if we have used the presses etc
+    bool bUsed = false;
+
+    extern volatile int changeIQPhasing, iqPhasing;
+
+    if( bCW )
+    {
+        changeIQPhasing = 1;
+        bUsed = true;
+    }
+    else if( bCCW )
+    {
+        changeIQPhasing = -1;
+        bUsed = true;
+    }
+
+    sleep_ms(25);
+    char buf[TEXT_BUF_LEN];
+    sprintf( buf, "IQ Phasing: %d", iqPhasing );
+    displayMenu( buf );
+    
+    return bUsed;
+}
+#endif
+
+/**
+ * @brief Gets the frequency of the specified VFO.
+ *
+ * This function returns the frequency of the specified VFO.
+ * Usually called from CAT control.
+ *
+ * @param vfo The VFO index (0 or 1).
+ * @return The frequency of the specified VFO.
+ */
 uint32_t getVFOFreq( uint8_t vfo )
 {
     uint32_t freq = 0;
@@ -2348,55 +4182,109 @@ uint32_t getVFOFreq( uint8_t vfo )
     return freq;
 }
 
-// Get the current VFO frequency
+/**
+ * @brief Get the current VFO (Variable Frequency Oscillator) frequency.
+ * 
+ * @return uint32_t The current VFO frequency in Hertz.
+ */
 uint32_t getCurrentVFOFreq()
 {
     return getVFOFreq( currentVFO );
 }
 
-// Get the other VFO frequency
+/**
+ * @brief Get the frequency of the other VFO.
+ *
+ * This function returns the frequency of the other VFO.
+ *
+ * @return The frequency of the other VFO.
+ */
 uint32_t getOtherVFOFreq()
 {
     return getVFOFreq( OTHER_VFO );
 }
 
-// Get current VFO RIT/XIT offset
+/**
+ * @brief Get the current VFO (Variable Frequency Oscillator) offset.
+ *
+ * This function retrieves the current offset value for the VFO.
+ *
+ * @return The current VFO offset as a 16-bit signed integer.
+ */
 int16_t getCurrentVFOOffset()
 {
     return vfoState[currentVFO].offset;
 }
 
-// Returns true if the current VFO is in RIT mode
+/**
+ * @brief Returns true if the current VFO is in RIT mode.
+ *
+ * This function checks if the current VFO is in Receiver Incremental Tuning (RIT) mode.
+ *
+ * @return true if the current VFO is in RIT mode, false otherwise.
+ */
 bool getCurrentVFORIT()
 {
     return (vfoState[currentVFO].mode == vfoRIT);
 }
 
-// Returns true if the current VFO is in XIT mode
+/**
+ * @brief Returns true if the current VFO is in XIT mode.
+ *
+ * This function checks if the current VFO is in Transmit Incremental Tuning (XIT) mode.
+ *
+ * @return true if the current VFO is in XIT mode, false otherwise.
+ */
 bool getCurrentVFOXIT()
 {
     return (vfoState[currentVFO].mode == vfoXIT);
 }
 
-// Get other VFO RIT/XIT offset
+/**
+ * @brief Get the offset value for the other VFO (Variable Frequency Oscillator).
+ *
+ * This function retrieves the offset value for the other VFO, which is used
+ * to adjust the frequency of the oscillator.
+ *
+ * @return int16_t The offset value for the other VFO.
+ */
 int16_t getOtherVFOOffset()
 {
     return vfoState[currentVFO].offset;
 }
 
-// Returns true if the other VFO is in RIT mode
+/**
+ * @brief Returns true if the other VFO is in RIT mode.
+ *
+ * This function checks if the other VFO is in Receiver Incremental Tuning (RIT) mode.
+ *
+ * @return true if the other VFO is in RIT mode, false otherwise.
+ */
 bool getOtherVFORIT()
 {
     return (vfoState[currentVFO].mode == vfoRIT);
 }
 
-// Returns true if the other VFO is in XIT mode
+/**
+ * @brief Returns true if the other VFO is in XIT mode.
+ *
+ * This function checks if the other VFO is in Transmit Incremental Tuning (XIT) mode.
+ *
+ * @return true if the other VFO is in XIT mode, false otherwise.
+ */
 bool getOtherVFOXIT()
 {
     return (vfoState[currentVFO].mode == vfoXIT);
 }
 
-// Sets a VFO to a frequency - usually called from CAT control
+/**
+ * @brief Sets the frequency of the specified VFO (Variable Frequency Oscillator).
+ *
+ * This function configures the frequency of the given VFO to the specified value.
+ *
+ * @param vfo The VFO to set the frequency for. This is an 8-bit unsigned integer.
+ * @param freq The frequency to set for the VFO. This is a 32-bit unsigned integer.
+ */
 void setVFOFrequency( uint8_t vfo, uint32_t freq )
 {
     if( vfo < NUM_VFOS )
@@ -2406,13 +4294,26 @@ void setVFOFrequency( uint8_t vfo, uint32_t freq )
     setFrequencies();
 }
 
-// Return the current VFO - for CAT control
+/**
+ * @brief Get the current VFO (Variable Frequency Oscillator).
+ *
+ * This function returns the index of the current VFO.
+ *
+ * @return The index of the current VFO.
+ */
 uint8_t getCurrentVFO()
 {
     return currentVFO;
 }
 
-// Set the current VFO - from CAT control
+/**
+ * @brief Sets the current VFO (Variable Frequency Oscillator).
+ *
+ * This function updates the current VFO to the specified VFO index
+ * and updates the frequencies and display accordingly.
+ *
+ * @param vfo The VFO index to set as the current VFO.
+ */
 void setCurrentVFO( uint8_t vfo )
 {
     if( vfo < NUM_VFOS )
@@ -2421,27 +4322,47 @@ void setCurrentVFO( uint8_t vfo )
 
         // Update the frequencies and display
         setFrequencies();
-        update_display();
     }
 }
 
-// Get the split state - for CAT control
+/**
+ * @brief Retrieves the state of the VFO split.
+ *
+ * This function checks and returns the current state of the VFO (Variable Frequency Oscillator) split.
+ *
+ * @return true if the VFO split is enabled, false otherwise.
+ */
 bool getVFOSplit()
 {
     return bVFOSplit;
 }
 
-// Get the transmitting state - for CAT control
+/**
+ * @brief Get the current transmitting state.
+ *
+ * This function returns the current state of transmission.
+ *
+ * @return true if currently transmitting, false otherwise.
+ */
 bool getTransmitting()
 {
     return bTransmitting;
 }
 #endif
 
-// Adjust a VFO. Changes the frequency or the offset by the supplied change.
-// Could change both but not a normal usage (simplex changes the frequency, 
-// RIT and XIT change the offset 
-static void adjustVFO( uint8_t vfo, int16_t freqChange, int16_t offsetChange )
+/**
+ * @brief Adjusts the VFO frequency and offset.
+ *
+ * This function adjusts the frequency and offset of the specified VFO
+ * by the given changes. It then updates the TX and RX frequencies.
+ * Can change both frequency and offset but not a normal usage 
+ * (simplex changes the frequency, RIT and XIT change the offset ).
+ *
+ * @param vfo The VFO index to adjust.
+ * @param freqChange The change in frequency to apply.
+ * @param offsetChange The change in offset to apply.
+ */
+static void adjustVFO( uint8_t vfo, int32_t freqChange, int32_t offsetChange )
 {
     // Record the new frequency and offset
     vfoState[vfo].freq = vfoState[vfo].freq + freqChange;
@@ -2451,9 +4372,8 @@ static void adjustVFO( uint8_t vfo, int16_t freqChange, int16_t offsetChange )
     setFrequencies();
 }
 
-// Handle the rotary control while in the VFO mode
 #ifdef SOTA2
-static void rotaryVFO( bool bCW, bool bCCW, bool bShortPress, bool bLongPress, bool bShortPressLeft, bool bLongPressLeft, bool bShortPressRight, bool bLongPressRight )
+static void rotaryVFO( uint16_t inputState )
 {
     // How much to change frequency by
     int16_t change = SOTA2_FREQ_CHANGE;
@@ -2489,9 +4409,18 @@ static void rotaryVFO( bool bCW, bool bCCW, bool bShortPress, bool bLongPress, b
         adjustVFO( currentVFO, change, 0);
     }
 }
-
 #else
-static void rotaryVFO( bool bCW, bool bCCW, bool bShortPress, bool bLongPress, bool bShortPressLeft, bool bLongPressLeft, bool bShortPressRight, bool bLongPressRight )
+/**
+ * @brief Handles the rotary control while in the VFO mode.
+ *
+ * This function processes the rotary control and button presses
+ * when the system is in VFO mode. It adjusts the VFO frequency,
+ * changes the cursor position, and handles entering and exiting
+ * different modes such as menu and quick menu.
+ *
+ * @param inputState The current state of the rotary control and buttons.
+ */
+static void rotaryVFO( uint16_t inputState )
 {
     // How much to change frequency by
     int16_t change;
@@ -2542,28 +4471,28 @@ static void rotaryVFO( bool bCW, bool bCCW, bool bShortPress, bool bLongPress, b
         }
 
         // Display the cursor in the correct place
-        update_cursor();
+        updateCursor();
     }
     else if( bLongPress )
     {
         // A long press takes us to the menu
         enterMenu();
     }
-    else if( bShortPressLeft )
+    else if( bShortPressRight )
     {
         cursorIndex++;
         if( vfoCursorTransition[cursorIndex].x == CURSOR_TRANSITION_END )
         {
             cursorIndex = 0;
         }
-        update_cursor();
+        updateCursor();
     }
     else if( bLongPressLeft )
     {
         // A long left press takes us to the quick menu
         enterQuickMenu();
     }
-    else if( bShortPressRight )
+    else if( bShortPressLeft )
     {
         if( cursorIndex == 0 )
         {
@@ -2573,7 +4502,7 @@ static void rotaryVFO( bool bCW, bool bCCW, bool bShortPress, bool bLongPress, b
         {
             cursorIndex--;
         }
-        update_cursor();
+        updateCursor();
     }
     else if( bLongPressRight )
     {
@@ -2610,15 +4539,30 @@ static void rotaryVFO( bool bCW, bool bCCW, bool bShortPress, bool bLongPress, b
     }
 }
 
-// Set the RIT - called from CAT control
+/**
+ * @brief Sets the current VFO (Variable Frequency Oscillator) offset.
+ *
+ * This function sets the current VFO offset to the specified RIT (Receiver Incremental Tuning) value.
+ *
+ * @param rit The RIT value to set the VFO offset to. This is a signed 16-bit integer.
+ */
 void setCurrentVFOOffset( int16_t rit )
 {
     // Set the RIT by changing the offset.
-    adjustVFO( currentVFO, 0, rit-vfoState[currentVFO].offset);
+    adjustVFO( currentVFO, 0, (int32_t) rit-vfoState[currentVFO].offset);
 }
 
-// Handle the rotary control while in the wpm setting mode
-static void rotaryWpm( bool bCW, bool bCCW, bool bShortPress, bool bLongPress, bool bShortPressLeft, bool bLongPressLeft, bool bShortPressRight, bool bLongPressRight )
+/**
+ * @brief Handles the rotary control while in the WPM setting mode.
+ *
+ * This function processes the rotary control and button presses
+ * when the system is in WPM setting mode. It adjusts the WPM value,
+ * changes between straight key mode and WPM mode, and handles entering
+ * and exiting different modes such as menu and quick menu.
+ *
+ * @param inputState The current state of the rotary control and buttons.
+ */
+static void rotaryWpm( uint16_t inputState )
 {
     // When switching into straight key mode want to remember current wpm
     // so that we switch back to that instead of the default
@@ -2708,65 +4652,288 @@ static void rotaryWpm( bool bCW, bool bCCW, bool bShortPress, bool bLongPress, b
         nvramWriteWpm( newWpm );
 
         // Display the new speed
-        update_display();
+        displayMorseWpm();
     }
 }
-#endif
 
-// See if the rotary control has been touched and handle its movement
-// This will update either the VFO or the wpm or the menu
-// Also handles the left and right buttons
-static void handleRotary()
+#ifdef PSDR
+/**
+ * @brief Handles the volume control.
+ *
+ * This function processes the rotary control and button presses
+ * to adjust the volume or input boost gain. It updates the display
+ * with the current volume or gain value.
+ */
+static void handleVolume()
 {
-    bool bShortPress;
-    bool bLongPress;
-    bool bCW;
-    bool bCCW;
-    bool bShortPressLeft;
-    bool bLongPressLeft;
-    bool bShortPressRight;
-    bool bLongPressRight;
+    bool bVolumeShortPress;
+    bool bVolumeLongPress;
+    bool bVolumeCW;
+    bool bVolumeCCW;
 
-    // Button debounce states
-    static struct sDebounceState debounceStateLeft, debounceStateRight;
+    // Whether or not to display the volume
+    // Even if we can't go up or down because at max or min
+    // still want to display it briefly (on LCD)
+    bool bDisplay = false;
 
-    // Debounce the pushbuttons
-    debouncePushbutton( ioReadLeftButton(),  &bShortPressLeft,  &bLongPressLeft,  DEBOUNCE_TIME, LONG_PRESS_TIME, &debounceStateLeft);
-    debouncePushbutton( ioReadRightButton(), &bShortPressRight, &bLongPressRight, DEBOUNCE_TIME, LONG_PRESS_TIME, &debounceStateRight);
+    // Get the currently set volume
+    uint8_t currentVolume = ioGetVolume();
+    uint8_t volume = currentVolume;
 
     // Read the rotary state
-    readRotary(&bCW, &bCCW, &bShortPress, &bLongPress);
+    readRotary(VOLUME_ROTARY, &bVolumeCW, &bVolumeCCW, &bVolumeShortPress, &bVolumeLongPress);
 
+    // The rotary control is either adjusting audio volume or front end gain (actually a shift in the input samples)
+    if( bVolumeMode )
+    {
+        if( bVolumeCW )
+        {
+            if( volume < MAX_VOLUME )
+            {
+                volume++;
+            }
+            bDisplay = true;
+        }
+        else if( bVolumeCCW )
+        {
+            if( volume > MIN_VOLUME )
+            {
+                volume--;
+            }
+            bDisplay = true;
+        }
+        else if( bVolumeShortPress )
+        {
+            // Switch between IF below or above RX frequency
+            ifBelow = !ifBelow;
+            ioSetIF();
+            bDisplay = true;
+            setFrequencies();
+        }
+        else if( bVolumeLongPress )
+        {
+            // Switch to front end shift control
+            bVolumeMode = false;
+            bDisplay = true;
+        }
+    }
+    else
+    {
+#if 1
+        uint8_t gain = WM8960GetInputBoostGain();
+        uint8_t prevGain = gain;
+
+        if( bVolumeCW )
+        {
+            if( gain < MAX_INPUT_BOOST_GAIN )
+            {
+                gain++;
+            }
+            bDisplay = true;
+        }
+        else if( bVolumeCCW )
+        {
+            if( gain > MIN_INPUT_BOOST_GAIN )
+            {
+                gain--;
+            }
+            bDisplay = true;
+        }
+        else if( bVolumeShortPress )
+        {
+            gain = DEFAULT_INPUT_BOOST_GAIN;
+            bDisplay = true;
+        }
+        else if( bVolumeLongPress )
+        {
+            bVolumeMode = true;
+            bDisplay = true;
+        }
+
+        if( gain != prevGain )
+        {
+            WM8960SetInputBoostGain( gain );
+        }
+#else
+        if( bVolumeCW )
+        {
+            if( inputShift < MAX_INPUT_SHIFT )
+            {
+                inputShift++;
+            }
+            bDisplay = true;
+        }
+        else if( bVolumeCCW )
+        {
+            if( inputShift > MIN_INPUT_SHIFT )
+            {
+                inputShift--;
+            }
+            bDisplay = true;
+        }
+        else if( bVolumeShortPress )
+        {
+            inputShift = DEFAULT_INPUT_SHIFT;
+            bDisplay = true;
+        }
+        else if( bVolumeLongPress )
+        {
+            bVolumeMode = true;
+            bDisplay = true;
+        }
+#endif
+    }
+
+    if( bDisplay )
+    {
+#ifdef LCD_DISPLAY        
+        // Remember which mode we were in before going into volume mode
+        if( displayMode != displayVolume )
+        {
+            lastDisplayMode = displayMode;
+        }
+        displayMode = displayVolume;
+        lastVolumeTime = millis();
+#endif
+        // Need to set the volume before we display it
+        ioSetVolume( volume );
+
+#ifdef LCD_DISPLAY
+        // Turn off the cursor
+        turnCursorOff();
+        displayFrequencyLCD();
+#endif        
+
+        displayVol();
+    }
+}
+
+/**
+ * @brief Toggles the state of the preamplifier.
+ *
+ * This function switches the preamplifier between its on and off states.
+ */
+static void togglePreamp( void )
+{
+    if( bPreampOn = !bPreampOn )
+    {
+        ioWritePreampOn();
+    }
+    else
+    {
+        ioWritePreampOff();
+    }
+    displayPreamp();
+}
+#endif
+#endif
+
+/**
+ * @brief Handles the rotary control and pushbuttons.
+ *
+ * This function processes the rotary control and button presses
+ * to navigate and select various options in the user interface.
+ * It updates the display and handles entering and exiting different modes.
+ */
+static void handleRotary()
+{
+    int button;
+
+    bool bRotaryShortPress;
+    bool bRotaryLongPress;
+    bool bRotaryCW;
+    bool bRotaryCCW;
+    bool bShortPressButton[NUM_PUSHBUTTONS];
+    bool bLongPressButton[NUM_PUSHBUTTONS];
+
+    // Button debounce states
+    static struct sDebounceState debounceStateButton[NUM_PUSHBUTTONS];
+
+    // Debounce the pushbuttons
+    for( button = 0 ; button < NUM_PUSHBUTTONS ; button++ )
+    {
+        debouncePushbutton( ioReadButton(button),  &bShortPressButton[button],  &bLongPressButton[button], DEBOUNCE_TIME, LONG_PRESS_TIME, &debounceStateButton[button]);
+    }
+
+    // Read the rotary state
+    readRotary(MAIN_ROTARY, &bRotaryCW, &bRotaryCCW, &bRotaryShortPress, &bRotaryLongPress);
+
+    // Create the bitmask with all the clicks etc
+    uint16_t inputState = (bRotaryCW*ROTARY_CW) |  (bRotaryCCW*ROTARY_CCW) | (bRotaryShortPress*ROTARY_SHORT_PRESS) | (bRotaryLongPress*ROTARY_LONG_PRESS);
+    for( button = 0 ; button < NUM_PUSHBUTTONS ; button++ )
+    {
+        inputState |= bShortPressButton[button]*SHORT_PRESS(button);
+        inputState |= bLongPressButton[button] *LONG_PRESS(button);
+    }
     // Call the handler if anything has happened
-    if( bCW || bCCW || bShortPress || bLongPress || bShortPressLeft || bLongPressLeft || bShortPressRight || bLongPressRight )
+    if( inputState )
     {
 #ifdef SOTA2
-        rotaryVFO(bCW, bCCW, bShortPress, bLongPress, bShortPressLeft, bLongPressLeft, bShortPressRight, bLongPressRight);
+        rotaryVFO( inputState );
 #else
+#ifdef LCD_DISPLAY
         // If we have an auto backlight then turn it on and note the time
         if( currentBacklightMode == backlightAuto )
         {
             lcdBacklight( true );
             lastBacklightTime = millis();
         }
-
+#endif
+#ifdef PSDR
+#ifdef OLED_DISPLAY
+        if( inputState & SHORT_PRESS(BUTTON_A) )
+        {
+            ioSetFilter( (ioGetFilter() + 1) % ioGetNumFilters() );
+            displayFilter();
+        }
+        else if( inputState & LONG_PRESS(BUTTON_A) )
+        {
+            uint8_t filter = ioGetFilter();
+            if( filter == 0 )
+            {
+                filter = ioGetNumFilters() - 1;
+            }
+            else
+            {
+                filter--;
+            }
+            ioSetFilter( filter );
+            displayFilter();
+        }
+        else 
+#endif
+        if( inputState & SHORT_PRESS(BUTTON_B) )
+        {
+            togglePreamp();
+        }
+        else if( inputState & LONG_PRESS(BUTTON_B) )
+        {
+            outputMode++;
+            if( outputMode >= NUM_OUTPUTS )
+            {
+                outputMode = 0;
+            }
+            displayOutputMode();
+        }
+        else
+#endif
         switch( currentMode )
         {
             case modeMenu:
-                rotaryMenu(bCW, bCCW, bShortPress, bLongPress, bShortPressLeft, bLongPressLeft, bShortPressRight, bLongPressRight);
+                rotaryMenu(inputState);
                 break;
 
             case modeQuickMenu:
-                rotaryQuickMenu(bCW, bCCW, bShortPress, bLongPress, bShortPressLeft, bLongPressLeft, bShortPressRight, bLongPressRight);
+                rotaryQuickMenu(inputState);
                 break;
 
             case modeWpm:
-                rotaryWpm(bCW, bCCW, bShortPress, bLongPress, bShortPressLeft, bLongPressLeft, bShortPressRight, bLongPressRight);
+                rotaryWpm(inputState);
                 break;
 
             default:
             case modeVFO:
-                rotaryVFO(bCW, bCCW, bShortPress, bLongPress, bShortPressLeft, bLongPressLeft, bShortPressRight, bLongPressRight);
+                rotaryVFO(inputState);
                 break;
         }
 #endif
@@ -2774,10 +4941,17 @@ static void handleRotary()
 }
 
 
-// Main loop is called repeatedly
+/**
+ * @brief Main loop function.
+ *
+ * This function is called repeatedly and handles various tasks such as
+ * checking the morse paddles, handling the rotary control and pushbuttons,
+ * managing the backlight, and performing CAT control.
+ */
 static void loop()
 {
 #ifndef SOTA2
+#ifdef LCD_DISPLAY
     // If the backlight mode is auto then see if it is time
     // to turn off the backlight
     if( currentBacklightMode == backlightAuto )
@@ -2791,6 +4965,23 @@ static void loop()
             lastBacklightTime = 0;
         }
     }
+
+#ifdef PSDR
+    if( displayMode == displayVolume )
+    {
+        if( lastVolumeTime &&
+            (millis() - lastVolumeTime) > VOLUME_DISPLAY_DELAY )
+        {
+            displayMode = lastDisplayMode;
+            displayFrequencyLCD();
+            updateCursor();
+
+            // Setting this to zero stops us checking any more
+            lastVolumeTime = 0;
+        }
+    }
+#endif
+#endif
 #endif
 
     // See if the morse paddles or straight key have been pressed
@@ -2800,13 +4991,178 @@ static void loop()
         // Deal with the rotary control/pushbutton
         handleRotary();
 
+#ifdef PSDR
+        // Deal with the volume control
+        handleVolume();
+#endif
+
 #ifdef CAT_CONTROL
         // Do CAT control
         catControl();
 #endif
+#ifdef PSDR
+        static uint32_t lastInputTime;
+        static uint8_t lastScale;
+
+        uint32_t now = millis();
+        if( (now - lastInputTime) > 500 )
+        {
+            lastInputTime = now;
+
+            // Display change in ADC or output overload state
+            if( (adcOverload != prevAdcOverload) ||
+                (outOverload != prevOutOverload)
+#ifdef DISPLAY_MIN_MAX
+                 ||
+                (maxOut != prevMaxOut) ||
+                (maxIn != prevMaxIn) ||
+                (minOut != prevMinOut) ||
+                (minIn != prevMinIn)
+#endif
+              )
+            {
+                prevAdcOverload = adcOverload;
+                prevOutOverload = outOverload;
+#ifdef DISPLAY_MIN_MAX
+                prevMaxOut = maxOut;
+                prevMaxIn = maxIn;
+                prevMinOut = minOut;
+                prevMinIn = minIn;
+#endif
+                displayPreamp();
+            }
+
+#ifdef DISPLAY_AGC
+            if( (agcAmplitude != prevAgcAmplitude) || (agcGain != prevAgcGain) )
+            {
+                prevAgcAmplitude = agcAmplitude;
+                prevAgcGain = agcGain;
+                displayAgc();
+            }
+#endif
+        }
+#endif
     }
 }
 
+/**
+ * @brief Initialises the screen.
+ *
+ * This function sets up the screen for displaying information.
+ * It initialises the display, calculates cursor positions, and
+ * sets up various screen objects and their positions.
+ */
+void screenInit( void )
+{
+#ifndef SOTA2
+#ifdef LCD_DISPLAY
+    displayInit();
+#endif
+
+#ifdef OLED_DISPLAY
+    int i;
+
+    oledInit();
+
+    // Calculate the OLED cursor positions
+    // This allows us to change the font
+    for( i = 0 ; vfoCursorTransition[i].x != CURSOR_TRANSITION_END ; i++ )
+    {
+        // The cursor is below the digits which may be full or half height
+        vfoCursorTransition[i].sy = getFontHeight( FREQUENCY_FONT );
+        vfoCursorTransition[i].shy = getFontHeight( HALF_FREQUENCY_FONT );
+
+        // The VFO letter and dot are a different font to the digits
+        if( i <= CURSOR_DOT )
+        {
+            vfoCursorTransition[i].sx = getFontWidth( VFO_LETTER_FONT ) + (i+CURSOR_DOT+1)*getFontWidth( FREQUENCY_FONT );
+        }
+        else
+        {
+            vfoCursorTransition[i].sx = getFontWidth( VFO_LETTER_FONT ) + getFontWidth(FREQUENCY_DOT_FONT) + (i+CURSOR_DOT)*getFontWidth( FREQUENCY_FONT );
+        }
+
+        // Cursor width is different for the dot
+        if( i == CURSOR_DOT )
+        {
+            vfoCursorTransition[i].sWidth = getFontWidth( FREQUENCY_DOT_FONT );
+        }
+        else
+        {
+            vfoCursorTransition[i].sWidth = getFontWidth( FREQUENCY_FONT );
+        }
+    }
+
+    // Calculate the OLED quick menu positions and widths
+    // This needs to match the definition of QUICK_MENU_TEXT
+    for( i = 0 ; i < NUM_QUICK_MENUS ; i++ )
+    {
+        quickMenu[i].sx = quickMenu[i].pos * getFontWidth( MENU_FONT );
+
+        int width;
+        if( i <= 1 )
+        {
+            width = 3;
+        }
+        else if( i <= 3 )
+        {
+            width = 1;
+        }
+        else
+        {
+            width = 4;
+        }
+        quickMenu[i].sWidth = getFontWidth( MENU_FONT ) * width;
+    }
+
+    // Calculate the positions for screen objects and cursors
+    wpmX = 0;
+    wpmY = getFontHeight(FREQUENCY_FONT) + 2;
+    wpmCursorX = 0;
+    wpmCursorY = wpmY + getFontHeight( WPM_FONT );
+    wpmCursorWidth = getFontWidth( WPM_FONT ) * 5;
+
+    volX = wpmCursorX + wpmCursorWidth + getFontWidth( WPM_FONT );
+    volY = wpmY;
+
+    preampX = volX + getFontWidth( VOLUME_FONT ) * 7;
+    preampY = volY;
+
+    menuX = 0;
+    menuY = wpmY + getFontHeight( WPM_FONT ) + 2;
+    menuCursorX = menuX;
+    menuCursorY = menuY + getFontHeight( MENU_FONT );
+    menuWidth = OLED_WIDTH;
+
+    modeX = 0;
+    modeY = menuY + getFontHeight( MENU_FONT ) + 2;
+    modeWidth = getFontWidth( MODE_FONT ) * 4;
+
+    filterX = modeX + modeWidth + 2;
+    filterY = modeY;
+    filterWidth = OLED_WIDTH - modeWidth - 2;
+
+    //displayTRXMode();
+    displayOutputMode();
+    displayFilter();
+#endif
+
+    displayMorseWpm();
+
+#ifdef PSDR
+    displayVol();
+    displayPreamp();
+#endif
+#endif
+}
+
+/**
+ * @brief Main entry point of the application.
+ *
+ * This function initialises various modules and enters the main loop.
+ *
+ * @return int Exit status of the application.
+ */
 int main(void)
 {
     // Start the millisecond timer - it enables timer interrupts
@@ -2822,15 +5178,14 @@ int main(void)
     // Initialise CAT control
     catInit();
 #endif
-
     // Set up morse and set the speed and keyer mode as read from NVRAM
     morseInit();
     morseSetWpm( nvramReadWpm() );
     morseSetKeyerMode( nvramReadMorseKeyerMode() );
 
-#ifndef SOTA2
-    displayInit();
+    screenInit();
 
+#ifdef LCD_DISPLAY
     // Set the backlight
     currentBacklightMode = nvramReadBacklighMode();
     lcdBacklight( currentBacklightMode != backlightOff );
@@ -2842,8 +5197,8 @@ int main(void)
     
 #ifdef VARIABLE_SIDETONE_VOLUME
     // Set the sidetone volume
-    sidetoneVolume = nvramReadSidetoneVolume();
-    ioWriteSidetoneDutyCycle( sidetoneVolume );
+    uint8_t sidetoneVolume = nvramReadSidetoneVolume();
+    ioSetSidetoneVolume( sidetoneVolume );
 #endif
    
     // Initialise the oscillator chip
@@ -2868,6 +5223,9 @@ int main(void)
     // Enable the RX clock outputs
     // We enable the TX output only when transmitting
     enableRXClock( true );
+
+    // Unmute the receiver
+    muteRX( false );
 
     while (1) 
     {
