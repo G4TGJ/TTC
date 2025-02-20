@@ -898,13 +898,17 @@ static void drawCursor( int x, int y, int width )
 #endif
 
 #ifdef SOTA2
-// For the SOTA transceiver we have 3 LEDs instead of an LCD.
-// The default frequency is the centre frequency (e.g. 14060)
-// and we have left and right frequencies (e.g. 14050 and 14070)
-// Centre LED lit between the left and right frequencies
-// Left LED lit below the centre
-// Right LED lit above the centre
-// All LEDs light out of band
+/**
+ * @brief Updates LEDs for the current frequency.
+ *
+ * For the SOTA transceiver we have 3 LEDs instead of an LCD.
+ * The default frequency is the centre frequency (e.g. 14060)
+ * and we have left and right frequencies (e.g. 14050 and 14070)
+ * Centre LED lit between the left and right frequencies
+ * Left LED lit below the centre
+ * Right LED lit above the centre
+ * All LEDs light out of band
+ */
 static void displayFrequencies( void )
 {
     uint32_t freq = getRXFreq();
@@ -1706,7 +1710,13 @@ static void enterVFOBandMenu()
 
 #ifdef PSDR
 #ifdef LCD_DISPLAY
-// Quick way to the filter menu
+/**
+ * @brief Quick way to the filter menu.
+ *
+ * This function sets the current menu to the SDR menu and the current sub-menu
+ * to the filter menu item. It also sets the mode to menu mode and indicates
+ * that we are in a quick menu item. The filter menu is then displayed.
+ */
 static void enterSDRFilterMenu()
 {
     currentMenu = SDR_MENU;
