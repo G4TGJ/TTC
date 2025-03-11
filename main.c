@@ -91,7 +91,7 @@ static bool menuAdjustPhase( uint16_t inputState );
 static bool menuApplyGains( uint16_t inputState );
 static bool menuRoofing( uint16_t inputState );
 static bool menuHilbertFilter( uint16_t inputState );
-static bool menuMuteFactor( uint16_t inputState );
+static bool menuMuteSpeed( uint16_t inputState );
 static bool menuLeftADCVolume( uint16_t inputState );
 static bool menuRightADCVolume( uint16_t inputState );
 static bool menuIQPhasing( uint16_t inputState );
@@ -146,7 +146,7 @@ static const struct sMenuItem sdrMenu[NUM_SDR_MENUS] =
     { "I Gain",         menuIGain },
     { "Q Gain",         menuQGain },
     { "IQ Gain",        menuIQGain },
-    { "Mute Factor",    menuMuteFactor },
+    { "Mute Speed",     menuMuteSpeed },
     { "Hilbert filter", menuHilbertFilter },
 };
 
@@ -526,7 +526,7 @@ static int prevAgcGain;
 #endif
 
 // Maximum mute factor
-extern int maxMuteFactor;
+extern int muteSpeed;
 
 #ifdef DISPLAY_MIN_MAX
 extern int maxIn, maxOut, minIn, minOut;
@@ -3941,7 +3941,7 @@ static bool menuIQGain( uint16_t inputState )
 }
 
 /**
- * @brief Handles the menu for adjusting the mute factor.
+ * @brief Handles the menu for adjusting the mute speed.
  *
  * This function processes the rotary control and button presses
  * to adjust the mute factor. It updates the display with the
@@ -3950,65 +3950,34 @@ static bool menuIQGain( uint16_t inputState )
  * @param inputState The current state of the rotary control and buttons.
  * @return true if the input was used, false otherwise.
  */
-static bool menuMuteFactor( uint16_t inputState )
+static bool menuMuteSpeed( uint16_t inputState )
 {
     // Set to true if we have used the presses etc
     bool bUsed = false;
     
     if( bCW )
     {
-        if( maxMuteFactor < 10 )
+        if( muteSpeed < MAX_MUTE_SPEED )
         {
-            maxMuteFactor++;
-        }
-        else if( maxMuteFactor <= (MAX_MUTE_FACTOR - 10) )
-        {
-            maxMuteFactor+=10;
+            muteSpeed++;
         }
         bUsed = true;
     }
     else if( bCCW )
     {
-        if( maxMuteFactor >= 20 )
+        if( muteSpeed > MIN_MUTE_SPEED )
         {
-            maxMuteFactor-=10;
-        }
-        else if( maxMuteFactor > MIN_MUTE_FACTOR )
-        {
-            maxMuteFactor--;
-        }
-        bUsed = true;
-    }
-    else if( bShortPressRight )
-    {
-        if( maxMuteFactor < (MAX_MUTE_FACTOR - 100) )
-        {
-            maxMuteFactor+=100;
-        }
-        bUsed = true;
-    }
-    else if( bShortPressLeft )
-    {
-        if( maxMuteFactor >= (MIN_MUTE_FACTOR + 100) )
-        {
-            maxMuteFactor-=100;
+            muteSpeed--;
         }
         bUsed = true;
     }
     else if( bShortPress )
     {
-        if( maxMuteFactor == DEFAULT_MAX_MUTE_FACTOR )
-        {
-            maxMuteFactor = 10 * DEFAULT_MAX_MUTE_FACTOR;
-        }
-        else
-        {
-            maxMuteFactor = DEFAULT_MAX_MUTE_FACTOR;
-        }
+        muteSpeed = DEFAULT_MUTE_SPEED;
         bUsed = true;
     }
     char buf[TEXT_BUF_LEN];
-    sprintf( buf, "Mute f: %d", maxMuteFactor);
+    sprintf( buf, "Mute speed: %d", muteSpeed);
     displayMenu( buf );
     
     return bUsed;
