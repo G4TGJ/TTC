@@ -3359,12 +3359,12 @@ static bool menuXtalFreq( uint16_t inputState )
 static bool menuIntermediateFreq( uint16_t inputState )
 {
     // When the menu is entered we are changing the first changeable digit of the
-    // intermediate frequency i.e. 10MHz. This is character 5.
+    // intermediate frequency i.e. 10MHz. This is character 4.
     #define INITIAL_IF_CHANGE 10000000
-    #define INITIAL_IF_POS    5
+    #define INITIAL_IF_POS    4
 
     // The final changeable digit position
-    #define FINAL_IF_POS      12
+    #define FINAL_IF_POS      11
 
     // Set to true as expecting to use the presses etc
     bool bUsed = true;
