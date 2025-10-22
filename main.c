@@ -1468,6 +1468,10 @@ static void displayFilter( void )
     oledDrawRectangle( filterX, filterY, filterWidth, getFontHeight( FILTER_FONT ), false, false );
     oledWriteString( filterX, filterY, ioGetFilterText(), FILTER_FONT, true );
 }
+#else
+static void displayOutputMode( void )
+{
+}
 #endif
 #endif
 
