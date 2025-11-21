@@ -92,12 +92,15 @@ static bool menuApplyGains( uint16_t inputState );
 static bool menuRoofing( uint16_t inputState );
 static bool menuHilbertFilter( uint16_t inputState );
 static bool menuMuteSpeed( uint16_t inputState );
-static bool menuLeftADCVolume( uint16_t inputState );
-static bool menuRightADCVolume( uint16_t inputState );
 static bool menuIQPhasing( uint16_t inputState );
 #ifdef LCD_DISPLAY
 static bool menuFilter( uint16_t inputState );
 #endif
+#endif
+
+#ifdef USE_WM8960
+static bool menuLeftADCVolume( uint16_t inputState );
+static bool menuRightADCVolume( uint16_t inputState );
 #endif
 
 #ifdef LCD_DISPLAY
@@ -126,10 +129,17 @@ static const struct sMenuItem vfoMenu[NUM_VFO_MENUS] =
 
 #ifdef PSDR
 #ifdef LCD_DISPLAY
-#define NUM_SDR_MENUS 14
+#define NUM_BASE_SDR_MENUS 12
 #else
-#define NUM_SDR_MENUS 13
+#define NUM_BASE_SDR_MENUS 11
 #endif
+
+#ifdef USE_WM8960
+#define NUM_SDR_MENUS (NUM_BASE_SDR_MENUS + 2)
+#else
+#define NUM_SDR_MENUS (NUM_BASE_SDR_MENUS)
+#endif
+
 static const struct sMenuItem sdrMenu[NUM_SDR_MENUS] =
 {
     { "",               NULL },
@@ -138,8 +148,10 @@ static const struct sMenuItem sdrMenu[NUM_SDR_MENUS] =
     { "Filter",         menuFilter },
 #endif
     { "IQ Phasing",     menuIQPhasing },
+#ifdef USE_WM8960
     { "Left ADC Vol",   menuLeftADCVolume },
     { "Right ADC Vol",  menuRightADCVolume },
+#endif
     { "Roofing filter", menuRoofing },
     { "Apply gains",    menuApplyGains },
     { "Adjust phase",   menuAdjustPhase },
@@ -530,15 +542,18 @@ extern int muteSpeed;
 
 #ifdef DISPLAY_MIN_MAX
 extern int maxIn, maxOut, minIn, minOut;
+extern int maxIIn, maxQIn, minIIn, minQIn;
 static int prevMaxIn, prevMaxOut, prevMinIn, prevMinOut;
 #endif
 
 // Volume knob controls volume when true else front end
 // sample shift.
 static bool bVolumeMode = true;
+#endif
 
+#ifdef USE_ADC_INPUT
 // The front end input shift
-//extern int inputShift;
+extern int inputShift;
 #endif
 
 /**
@@ -683,8 +698,14 @@ static void setRelay()
  */
 static void enableRXClock( bool bEnable )
 {
+#ifdef PSDR2
+    oscClockEnable( LO_CLOCK, bEnable );
+    oscClockEnable( BFO_CLOCK_A, bEnable );
+    oscClockEnable( BFO_CLOCK_B, bEnable );
+#else
     oscClockEnable( RX_CLOCK_A, bEnable );
     oscClockEnable( RX_CLOCK_B, bEnable );
+#endif
 }
 
 /**
@@ -1075,6 +1096,7 @@ static void displayFrequencyOLED( int line, char cA, char cB, uint32_t freq, boo
 static char wpmText[TEXT_BUF_LEN];
 static char freqText[TEXT_BUF_LEN];
 static char volText[TEXT_BUF_LEN];
+static char preampText[TEXT_BUF_LEN];
 
 #ifdef LCD_DISPLAY
 /**
@@ -1209,33 +1231,31 @@ static void displayFrequencies( void )
     {
         sprintf( freqText, "%c%c%5lu%c%02lu", cLine2A, cLine2B, freq2/1000, cDot, (freq2%1000)/10);
 
-#ifdef LCD_DISPLAY
-        displaySplitLine( 0, FREQ_LINE + 1 );
-        displayText( FREQ_LINE + 1, freqText, true );
-#endif
-
 #ifdef OLED_DISPLAY
         bigFont = false;
 
         // Display on the OLED
         displayFrequencyOLED( FREQ_LINE + 1, cLine2A, cLine2B, freq2, bigFont );
 #endif
-
-#ifdef LCD_DISPLAY
-        // Second line is split so frequency not overwritten if we are displaying morse
-        displaySplitLine( 10, FREQ_LINE + 1 );
-#endif
     }
     else
     {
-        // Second line is not split and needs to be cleared if not in the menu or quick menu
-        if( (currentMode != modeQuickMenu) && (currentMode != modeMenu) )
-        {
+        // No frequency text on second line
+        strcpy( freqText, "          " );
+    }
+
+    if( (currentMode != modeQuickMenu) && (currentMode != modeMenu) )
+    {
 #ifdef LCD_DISPLAY
-            displaySplitLine( 0, FREQ_LINE + 1 );
+        displaySplitLine( 0, FREQ_LINE + 1 );
+#ifdef PSDR
+        char buf[TEXT_BUF_LEN];
+        sprintf( buf, "%s %s%s", freqText, preampText, ioGetFilterShortText() );
+#else
+        char *buf = freqText;
 #endif
-            displayMenu( "" );
-        }
+        displayText( FREQ_LINE + 1, buf, true );
+#endif
     }
 
     // Line 1 has the frequency as determined above
@@ -1301,8 +1321,13 @@ static void displayMorseWpm( void )
  */
 static void displayVol( void )
 {
-//    sprintf( volText, "%c:%d%c%02d", ifBelow ? '-' : '+', inputShift, bVolumeMode ? '>' : '<', ioGetVolume());
-    sprintf( volText, "%c:%d%c%02d", ifBelow ? '-' : '+', WM8960GetInputBoostGain(), bVolumeMode ? '>' : '<', ioGetVolume());
+#ifdef USE_ADC_INPUT
+    sprintf( volText, "%c%d%c%02d", ifBelow ? '-' : '+', inputShift, bVolumeMode ? '>' : '<', ioGetVolume());
+#endif
+
+#ifdef I2S_INPUT
+    sprintf( volText, "%c%d%c%02d", ifBelow ? '-' : '+', WM8960GetInputBoostGain(), bVolumeMode ? '>' : '<', ioGetVolume());
+#endif
 
 #ifdef OLED_DISPLAY
     // Display on the OLED
@@ -1343,7 +1368,6 @@ static void displayAgc( void )
  */
 static void displayPreamp( void )
 {
-    char buf[TEXT_BUF_LEN];
     char preampChar, adcChar, outChar;
 
     if( bPreampOn )
@@ -1377,51 +1401,27 @@ static void displayPreamp( void )
         outChar = '0';
     }
 
-    sprintf( buf, "%c%c%c", preampChar, adcChar, outChar );
+    sprintf( preampText, "%c%c%c", preampChar, adcChar, outChar );
 
 #ifdef OLED_DISPLAY
     // Display on the OLED
-    oledWriteString( preampX, preampY, buf, PREAMP_FONT, true);
+    oledWriteString( preampX, preampY, preampText, PREAMP_FONT, true);
 
 #ifdef DISPLAY_MIN_MAX
+    char buf[TEXT_BUF_LEN];
     sprintf(buf, "%04x %04x %04x", minIn, maxIn, maxOut );
     oledWriteString( menuX, menuY, buf, WPM_FONT, true);
 #endif
 #endif
+
+#ifdef LCD_DISPLAY
+    displayFrequencies();
+#endif
 }
 #endif
 
 #ifdef OLED_DISPLAY
 
-#if 0
-static char *getModeText( void )
-{
-    switch( nvramReadTRXMode() )
-    {
-        case cwMode:
-            return "CW";
-
-        case cwRevMode:
-            return "CWR";
-
-        case lsbMode:
-            return "LSB";
-
-        case usbMode:
-            return "USB";
-
-        default:
-            return "???";
-    }
-}
-
-static void displayTRXMode( void )
-{
-    // Clear previous mode text before writing new text
-    oledDrawRectangle( modeX, modeY, modeWidth, getFontHeight( MODE_FONT ), false, false );
-    oledWriteString (modeX, modeY, getModeText(), MODE_FONT, true );
-}
-#else
 /**
  * @brief Displays the current output mode on the OLED screen.
  *
@@ -1455,6 +1455,12 @@ static void displayOutputMode( void )
     }
     oledWriteString (modeX, modeY, output, MODE_FONT, true );
 }
+
+#else
+static void displayOutputMode( void )
+{
+}
+#endif
 #endif
 
 /**
@@ -1464,16 +1470,16 @@ static void displayOutputMode( void )
  */
 static void displayFilter( void )
 {
+#ifdef OLED_DISPLAY
     // Clear previous filter text before writing new text
     oledDrawRectangle( filterX, filterY, filterWidth, getFontHeight( FILTER_FONT ), false, false );
     oledWriteString( filterX, filterY, ioGetFilterText(), FILTER_FONT, true );
-}
-#else
-static void displayOutputMode( void )
-{
-}
 #endif
+#ifdef LCD_DISPLAY
+    // Display on the LCD
+    displayFrequencies();
 #endif
+}
 
 /**
  * @brief Sets the RX frequency.
@@ -1521,19 +1527,39 @@ static void setRXFrequency( uint32_t freq )
 #endif
 
 #ifdef PSDR
+    // SDRs have an audio intermediate frequency (e.g 12kHz) so the wanted
+    // signal will be at this audio frequency at the input to the ADC
+    //
+    // pSDR2 has an additional IF (e.g. 48MHz) which is filtered by a crystal filter
+    //
+    // So PSDR has the quadrature mixer frequency at the audio IF offset from the RX frequency
+    // PSDR2 has the quadrature mixer at the intermediate frequency
+
+#ifdef PSDR2
+    uint32_t quadratureFrequency = intermediateFrequency;
+#else
+    uint32_t quadratureFrequency = freq;
+#endif
+
     if( ifBelow )
     {
-        freq -= INTERMEDIATE_FREQUENCY;
+        quadratureFrequency -= INTERMEDIATE_FREQUENCY;
     }
     else
     {
-        freq += INTERMEDIATE_FREQUENCY;
+        quadratureFrequency += INTERMEDIATE_FREQUENCY;
     }
 
-    oscSetFrequency( RX_CLOCK_A, freq, 0 );
-    oscSetFrequency( RX_CLOCK_B, freq, q );
+#ifdef PSDR2
+    oscSetFrequency( LO_CLOCK, freq + intermediateFrequency, 0 );
+    oscSetFrequency( BFO_CLOCK_A, quadratureFrequency, 0 );
+    oscSetFrequency( BFO_CLOCK_B, quadratureFrequency, q );
 #else
-
+    oscSetFrequency( RX_CLOCK_A, quadratureFrequency, 0 );
+    oscSetFrequency( RX_CLOCK_B, quadratureFrequency, q );
+#endif
+#else
+    // Analogue transceivers have either direct conversion or superhet
     // Set the oscillator frequency.
     if( intermediateFrequency == 0 )
     {
@@ -1543,7 +1569,7 @@ static void setRXFrequency( uint32_t freq )
     }
     else
     {
-        // Superhet so set the LFO and BFO
+        // Superhet so set the LO and BFO
         oscSetFrequency( RX_CLOCK_A, freq + intermediateFrequency, 0 );
         oscSetFrequency( RX_CLOCK_B, intermediateFrequency - RX_OFFSET, 0 );
     }
@@ -1566,7 +1592,9 @@ static void setFrequencies()
 
     // Set RX and TX frequencies
     setRXFrequency( getRXFreq() );
+#ifndef PSDR2    
     oscSetFrequency( TX_CLOCK, getTXFreq(), 0 );
+#endif
 
     // Ensure the display and cursor reflect this
     displayFrequencies();
@@ -3363,12 +3391,12 @@ static bool menuXtalFreq( uint16_t inputState )
 static bool menuIntermediateFreq( uint16_t inputState )
 {
     // When the menu is entered we are changing the first changeable digit of the
-    // intermediate frequency i.e. 10MHz. This is character 5.
+    // intermediate frequency i.e. 10MHz. This is character 4.
     #define INITIAL_IF_CHANGE 10000000
-    #define INITIAL_IF_POS    5
+    #define INITIAL_IF_POS    4
 
     // The final changeable digit position
-    #define FINAL_IF_POS      12
+    #define FINAL_IF_POS      11
 
     // Set to true as expecting to use the presses etc
     bool bUsed = true;
@@ -3987,6 +4015,7 @@ static bool menuMuteSpeed( uint16_t inputState )
     return bUsed;
 }
 
+#ifdef USE_WM8960
 /**
  * @brief Handles the menu for adjusting the left ADC volume.
  *
@@ -4090,6 +4119,7 @@ static bool menuRightADCVolume( uint16_t inputState )
     
     return bUsed;
 }
+#endif
 
 /**
  * @brief Handles the menu for adjusting the IQ phasing.
@@ -4684,7 +4714,7 @@ static void handleVolume()
     }
     else
     {
-#if 1
+#ifdef USE_WM8960
         uint8_t gain = WM8960GetInputBoostGain();
         uint8_t prevGain = gain;
 
@@ -4752,6 +4782,13 @@ static void handleVolume()
     if( bDisplay )
     {
 #ifdef LCD_DISPLAY        
+        // If we have an auto backlight then turn it on and note the time
+        if( currentBacklightMode == backlightAuto )
+        {
+            lcdBacklight( true );
+            lastBacklightTime = millis();
+        }
+
         // Remember which mode we were in before going into volume mode
         if( displayMode != displayVolume )
         {
@@ -4845,7 +4882,6 @@ static void handleRotary()
         }
 #endif
 #ifdef PSDR
-#ifdef OLED_DISPLAY
         if( inputState & SHORT_PRESS(BUTTON_A) )
         {
             ioSetFilter( (ioGetFilter() + 1) % ioGetNumFilters() );
@@ -4866,7 +4902,6 @@ static void handleRotary()
             displayFilter();
         }
         else 
-#endif
         if( inputState & SHORT_PRESS(BUTTON_B) )
         {
             togglePreamp();
@@ -4974,10 +5009,16 @@ static void loop()
         {
             lastInputTime = now;
 
+#ifdef DISPLAY_MIN_MAX
+            printf("ADC overload: %d, Output overload: %d\n", adcOverload, outOverload);
+            printf("MinIn: %d, MaxIn: %d, MinOut: %d, MaxOut: %d\n", minIn, maxIn, minOut, maxOut);
+            printf("MinIIn: %d, MaxIIn: %d, MinQIn: %d, MaxQIn: %d\n", minIIn, maxIIn, minQIn, maxQIn);
+#endif
+
             // Display change in ADC or output overload state
             if( (adcOverload != prevAdcOverload) ||
                 (outOverload != prevOutOverload)
-#ifdef DISPLAY_MIN_MAX
+#if 0
                  ||
                 (maxOut != prevMaxOut) ||
                 (maxIn != prevMaxIn) ||
@@ -4988,7 +5029,7 @@ static void loop()
             {
                 prevAdcOverload = adcOverload;
                 prevOutOverload = outOverload;
-#ifdef DISPLAY_MIN_MAX
+#if 0
                 prevMaxOut = maxOut;
                 prevMaxIn = maxIn;
                 prevMinOut = minOut;
@@ -5138,6 +5179,12 @@ int main(void)
 
     // Initialise the NVRAM/EEPROM before other modules as it contains values needed for other setup
     nvramInit();
+
+#ifdef DISPLAY_MIN_MAX
+    stdio_init_all();
+    sleep_ms(1000); // Give time for serial to initialise
+    printf("Starting up...\n");
+#endif
 
 #ifdef CAT_CONTROL
     // Initialise CAT control

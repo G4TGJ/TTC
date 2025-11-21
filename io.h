@@ -56,6 +56,7 @@ uint8_t ioGetVolume( void );
 
 uint8_t ioGetFilter( void );
 const char *ioGetFilterText( void );
+const char *ioGetFilterShortText( void );
 void ioSetFilter( uint8_t filter );
 uint8_t ioGetNumFilters( void );
 
